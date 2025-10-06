@@ -518,6 +518,13 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
       return true;
     }
 
+    // [T] -> []
+    if (sv_eq_zstr(sv, "drop")) {
+      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
+      Stack_pop(stack, NULL);
+      return true;
+    }
+
     // [a, b] -> [b, a]
     if (sv_eq_zstr(sv, "rot2")) {
       if (!stack_operation_requires_n_items(stack, sv, 2)) return false;
