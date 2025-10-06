@@ -490,6 +490,26 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
       return true;
     }
 
+    // [] -> []
+    if (sv_eq_zstr(sv, "print_stack")) {
+      print_stack(stack);
+      return true;
+    }
+
+    // [pointer] -> []
+    if (sv_eq_zstr(sv, "print_zstr")) {
+      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
+      Value_Item item;
+      Stack_pop(stack, &item);
+      if (item.kind != VALUE_KIND_POINTER) {
+	platform_printfn("[ERROR] Invalid type passed to "SV_Fmt_Str" expected pointer", SV_Fmt_Arg(sv));
+	return false;
+      }
+      char *zstr = item.as_pointer.value;
+      platform_printfn("%s", zstr);
+      return true;
+    }
+
     // [T] -> [T, T]
     if (sv_eq_zstr(sv, "dup")) {
       if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
@@ -510,26 +530,6 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
       if (!stack_operation_requires_n_items(stack, sv, 3)) return false;
       Stack_swap(stack, stack->len - 1, stack->len - 3);
       Stack_swap(stack, stack->len - 1, stack->len - 2);
-      return true;
-    }
-
-    // [] -> []
-    if (sv_eq_zstr(sv, "print_stack")) {
-      print_stack(stack);
-      return true;
-    }
-
-    // [pointer] -> []
-    if (sv_eq_zstr(sv, "print_zstr")) {
-      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
-      Value_Item item;
-      Stack_pop(stack, &item);
-      if (item.kind != VALUE_KIND_POINTER) {
-	platform_printfn("[ERROR] Invalid type passed to "SV_Fmt_Str" expected pointer", SV_Fmt_Arg(sv));
-	return false;
-      }
-      char *zstr = item.as_pointer.value;
-      platform_printfn("%s", zstr);
       return true;
     }
 
