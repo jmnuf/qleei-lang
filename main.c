@@ -174,7 +174,7 @@ void lexer_init(Lexer *l, const char *buffer, uisz buf_size) {
   l->buffer_len = buf_size;
   l->index = 0;
   l->line = 1;
-  l->column = 0;
+  l->column = 1;
   l->token = (Token) { .string = { .data = buffer, .len = 0 } };
   l->token.string.data = buffer;
 }
@@ -191,7 +191,7 @@ bool lexer_next(Lexer *lexer) {
     while (is_space_char(c)) {
       if (c == '\n') {
 	lexer->line++;
-	lexer->column = 0;
+	lexer->column = 1;
       } else {
 	lexer->column++;
       }
@@ -214,6 +214,8 @@ bool lexer_next(Lexer *lexer) {
 	  c = lexer->buffer[lexer->index++];
 	}
       }
+      lexer->index--;
+      // lexer->column++;
       lexer->token.kind = TOKEN_KIND_NUMBER;
       lexer->token.number = parse_number(lexer->token.string);
       return true;
@@ -228,7 +230,7 @@ bool lexer_next(Lexer *lexer) {
 	lexer->column++;
       }
       lexer->index -= 1;
-      lexer->column--;
+
       if (sv_eq_zstr(lexer->token.string, "true")) {
 	lexer->token.kind = TOKEN_KIND_BOOL;
 	lexer->token.number = 1;
@@ -238,6 +240,7 @@ bool lexer_next(Lexer *lexer) {
       } else {
 	lexer->token.kind = TOKEN_KIND_IDENTIFIER;
       }
+
       return true;
     }
 
@@ -255,11 +258,12 @@ bool lexer_next(Lexer *lexer) {
     lexer->token.kind = TOKEN_KIND_SYMBOL;
     lexer->token.string.data = lexer->buffer + (lexer->index - 1);
     lexer->token.string.len = 1;
+    lexer->column++;
 
     if (c == '-') {
       if (lexer->index < lexer->buffer_len && lexer->buffer[lexer->index] == '>') {
-	lexer->index += 2;
-	lexer->column += 2;
+	lexer->index++;
+	lexer->column++;
 	lexer->token.string.len = 2;
 	return true;
       }
