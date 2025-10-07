@@ -531,7 +531,7 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
       Value_Item item;
       Stack_pop(stack, &item);
       if (item.kind != VALUE_KIND_NUMBER) {
-	platform_printfn("[ERROR] Invalid item type passed to ");
+	platform_printfn("[ERROR] Invalid item type passed to print_char");
 	return false;
       }
       double n = item.as_number.value;
@@ -541,6 +541,19 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
       }
       char c = (char)n;
       platform_printfn("%c", c);
+      return true;
+    }
+
+    // [bool] -> []
+    if (sv_eq_zstr(sv, "print_bool")) {
+      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
+      Value_Item item;
+      Stack_pop(stack, &item);
+      if (item.kind != VALUE_KIND_BOOL) {
+	platform_printfn("[ERROR] Invalid item type passed to print_bool");
+	return false;
+      }
+      platform_printfn(item.as_bool.value ? "true" : "false");
       return true;
     }
 
