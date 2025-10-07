@@ -7,6 +7,7 @@ typedef enum {
   TOKEN_KIND_EOF,
   TOKEN_KIND_IDENTIFIER,
   TOKEN_KIND_NUMBER,
+  TOKEN_KIND_BOOL,
   TOKEN_KIND_SYMBOL,
 } Token_Kind;
 
@@ -33,6 +34,7 @@ typedef struct {
 typedef enum {
   VALUE_KIND_NUMBER,
   VALUE_KIND_POINTER,
+  VALUE_KIND_BOOL,
 } Value_Kind;
 
 typedef union {
@@ -47,6 +49,11 @@ typedef union {
     Value_Kind kind;
     char *value;
   } as_pointer;
+
+  struct {
+    Value_Kind kind;
+    bool value;
+  } as_bool;
 } Value_Item;
 
 typedef struct {
@@ -136,6 +143,8 @@ const char *get_token_kind_name(Token_Kind kind) {
     return "Identifier";
   case TOKEN_KIND_NUMBER:
     return "Number";
+  case TOKEN_KIND_BOOL:
+    return "Bool";
   case TOKEN_KIND_SYMBOL:
     return "Symbol";
   }
@@ -148,6 +157,8 @@ const char *get_value_kind_name(Value_Kind kind) {
     return "number";
   case VALUE_KIND_POINTER:
     return "pointer";
+  case VALUE_KIND_BOOL:
+    return "bool";
   }
   return "<Unknown>";
 }
@@ -212,7 +223,15 @@ bool lexer_next(Lexer *lexer) {
       }
       lexer->index -= 1;
       lexer->column--;
-      lexer->token.kind = TOKEN_KIND_IDENTIFIER;
+      if (sv_eq_zstr(lexer->token.string, "true")) {
+	lexer->token.kind = TOKEN_KIND_BOOL;
+	lexer->token.number = 1;
+      } else if (sv_eq_zstr(lexer->token.string, "false")) {
+	lexer->token.kind = TOKEN_KIND_BOOL;
+	lexer->token.number = 0;
+      } else {
+	lexer->token.kind = TOKEN_KIND_IDENTIFIER;
+      }
       return true;
     }
 
@@ -265,6 +284,9 @@ void print_stack(Stack *s) {
     switch (s->items[i].kind) {
     case VALUE_KIND_NUMBER:
       platform_printf("Number(%.4f)", s->items[i].as_number.value);
+      break;
+    case VALUE_KIND_BOOL:
+      platform_printf("Bool(%s)", s->items[i].as_bool.value ? "true" : "false");
       break;
     case VALUE_KIND_POINTER:
       platform_printf("Pointer(%p)", s->items[i].as_pointer.value);
@@ -330,6 +352,8 @@ bool parse_proc(Interpreter *it) {
       alist_append(&proc.inputs, VALUE_KIND_POINTER);
     } else if (sv_eq_zstr(l->token.string, "number")) {
       alist_append(&proc.inputs, VALUE_KIND_NUMBER);
+    } else if (sv_eq_zstr(l->token.string, "bool")) {
+      alist_append(&proc.outputs, VALUE_KIND_BOOL);
     } else {
       platform_printfn("%zu:%zu: [ERROR] Invalid type name only 'pointer', 'ptr', and 'number' types exist", l->token.line, l->token.column);
       return false;
@@ -383,6 +407,8 @@ bool parse_proc(Interpreter *it) {
       alist_append(&proc.outputs, VALUE_KIND_POINTER);
     } else if (sv_eq_zstr(l->token.string, "number")) {
       alist_append(&proc.outputs, VALUE_KIND_NUMBER);
+    } else if (sv_eq_zstr(l->token.string, "bool")) {
+      alist_append(&proc.outputs, VALUE_KIND_BOOL);
     } else {
       platform_printfn("%zu:%zu: [ERROR] Invalid type name only 'pointer', 'ptr', and 'number' types exist", l->token.line, l->token.column);
       return false;
@@ -430,6 +456,31 @@ bool parse_proc(Interpreter *it) {
   return true;
 }
 
+double value_item_as_number(Value_Item item) {
+  switch (item.kind) {
+  case VALUE_KIND_NUMBER:
+    return item.as_number.value;
+  case VALUE_KIND_BOOL:
+    return (double)item.as_bool.value;
+  case VALUE_KIND_POINTER:
+    return (double)(uisz)item.as_pointer.value;
+  }
+  return 0.0;
+}
+
+bool value_item_as_bool(Value_Item item) {
+  switch (item.kind) {
+  case VALUE_KIND_NUMBER:
+    return item.as_number.value != 0;
+  case VALUE_KIND_BOOL:
+    return item.as_bool.value;
+  case VALUE_KIND_POINTER:
+    return item.as_pointer.value != NULL;
+  }
+
+  return false;
+}
+
 bool execute_proc(Interpreter *it, Proc *proc);
 
 bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
@@ -463,6 +514,9 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
       switch (item.kind) {
       case VALUE_KIND_NUMBER:
 	platform_printfn("%.4f", item.as_number.value);
+	break;
+      case VALUE_KIND_BOOL:
+	platform_printfn("%d", (int)item.as_bool.value);
 	break;
       case VALUE_KIND_POINTER:
 	platform_printfn("%zu", (uisz)item.as_pointer.value);
@@ -667,30 +721,39 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
     Stack_append(stack, (Value_Item){ .as_number = { .kind = VALUE_KIND_NUMBER, .value = t.number } });
     return true;
 
+  case TOKEN_KIND_BOOL:
+    Stack_append(stack, (Value_Item){ .as_bool = { .kind = VALUE_KIND_BOOL, .value = t.number == 1.0 } });
+    return true;
+
   case TOKEN_KIND_SYMBOL:
     if (sv_eq_zstr(sv, "+")) {
       if (!stack_operation_requires_n_items(stack, sv, 2)) return false;
       Value_Item a, b;
       Stack_pop(stack, &a);
       Stack_pop(stack, &b);
+      
+      if (a.kind == VALUE_KIND_POINTER && b.kind == VALUE_KIND_POINTER) {
+	platform_printfn("[ERROR] Cannot add 2 pointers together");
+	return false;
+      }
 
-      if (a.kind == VALUE_KIND_POINTER && b.kind == VALUE_KIND_NUMBER) {
-	char *ptr = a.as_pointer.value;
-	uisz  n   = (uisz)b.as_number.value;
-	ptr += n;
-	a.as_pointer.value = ptr;
+      if (a.kind == VALUE_KIND_POINTER || b.kind == VALUE_KIND_POINTER) {
+	char *ptr;
+	uisz n;
+	if (a.kind == VALUE_KIND_POINTER) {
+	  ptr = a.as_pointer.value;
+	  n = (uisz)value_item_as_number(b);
+	} else {
+	  ptr = b.as_pointer.value;
+	  n = (uisz)value_item_as_number(a);
+	}
+	a.as_pointer.kind = VALUE_KIND_POINTER;
+	a.as_pointer.value = ptr - n;
 	Stack_append(stack, a);
 	return true;
-      } else if (b.kind == VALUE_KIND_POINTER && a.kind == VALUE_KIND_NUMBER) {
-	char *ptr = b.as_pointer.value;
-	uisz  n   = (uisz)a.as_number.value;
-	ptr += n;
-	b.as_pointer.value = ptr;
-	Stack_append(stack, b);
-	return true;
       }
-      
-      a.as_number.value = a.as_number.value + b.as_number.value;
+
+      a.as_number.value = value_item_as_number(a) + value_item_as_number(b);
       Stack_append(stack, a);
       return true;
     }
@@ -701,23 +764,34 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
       Stack_pop(stack, &a);
       Stack_pop(stack, &b);
 
-      if (a.kind == VALUE_KIND_POINTER && b.kind == VALUE_KIND_NUMBER) {
-	char *ptr = a.as_pointer.value;
-	uisz  n   = (uisz)b.as_number.value;
-	ptr += n;
-	a.as_pointer.value = ptr;
+      if (a.kind == VALUE_KIND_POINTER && b.kind == VALUE_KIND_POINTER) {
+	platform_printfn("[ERROR] Cannot do subtraction between 2 pointers");
+	return false;
+      }
+
+      if (a.kind == VALUE_KIND_POINTER || b.kind == VALUE_KIND_POINTER) {
+	char *ptr;
+	uisz n;
+	if (a.kind == VALUE_KIND_POINTER) {
+	  ptr = a.as_pointer.value;
+	  n = (uisz)value_item_as_number(b);
+	} else {
+	  ptr = b.as_pointer.value;
+	  n = (uisz)value_item_as_number(a);
+	}
+
+	if (n > (uisz)ptr) {
+	  platform_printfn("[ERROR] Pointer arithmetic ends results in a negative value");
+	  return false;
+	}
+
+	a.as_pointer.kind  = VALUE_KIND_POINTER;
+	a.as_pointer.value = ptr - n;
 	Stack_append(stack, a);
-	return true;
-      } else if (b.kind == VALUE_KIND_POINTER && a.kind == VALUE_KIND_NUMBER) {
-	char *ptr = b.as_pointer.value;
-	uisz  n   = (uisz)a.as_number.value;
-	ptr += n;
-	b.as_pointer.value = ptr;
-	Stack_append(stack, b);
 	return true;
       }
 
-      a.as_number.value = a.as_number.value - b.as_number.value;
+      a.as_number.value = value_item_as_number(a) - value_item_as_number(b);
       Stack_append(stack, a);
       return true;
     }
@@ -733,7 +807,7 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 	return false;
       }
 
-      a.as_number.value = a.as_number.value / b.as_number.value;
+      a.as_number.value = value_item_as_number(a) / value_item_as_number(b);
       Stack_append(stack, a);
       return true;
     }
@@ -749,7 +823,7 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 	return false;
       }
 
-      a.as_number.value = a.as_number.value * b.as_number.value;
+      a.as_number.value = value_item_as_number(a) * value_item_as_number(b);
       Stack_append(stack, a);
       return true;
     }
