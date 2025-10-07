@@ -96,7 +96,8 @@ T_Item * T_List ## _last (T_List *list) {                         \
 #define define_list_pop(T_Item, T_List)                           \
 bool T_List ## _pop (T_List *list, T_Item *out) {                 \
   if (list->len == 0) return false;                               \
-  if (out) *out = list->items[--list->len];                       \
+  T_Item item = list->items[--list->len];                         \
+  if (out) *out = item;                                           \
   return true;                                                    \
 }
 
