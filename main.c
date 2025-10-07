@@ -31,6 +31,12 @@ typedef struct {
   Token token;
 } Lexer;
 
+typedef struct {
+  uisz index;
+  uisz line;
+  uisz column;
+} Lex_Save_Point;
+
 typedef enum {
   VALUE_KIND_NUMBER,
   VALUE_KIND_POINTER,
@@ -239,6 +245,12 @@ bool lexer_next(Lexer *lexer) {
     if (lexer->index >= lexer->buffer_len) {
       if (c == 0) break;
     }
+
+    // Ignore any unmanaged ASCII control character
+    if (c < 31) {
+      platform_printfn("[WARN] Unexpected control character found in input: %d", (int)c);
+      continue;
+    }
     
     lexer->token.kind = TOKEN_KIND_SYMBOL;
     lexer->token.string.data = lexer->buffer + (lexer->index - 1);
@@ -277,19 +289,36 @@ bool lexer_peek(Lexer *l, Token *t) {
   return true;
 }
 
+Lex_Save_Point lexer_save_point(Lexer *l) {
+  Lex_Save_Point save_point = {
+    .index = l->index,
+    .line = l->line,
+    .column = l->column,
+  };
+  return save_point;
+}
+
+void lexer_restore_point(Lexer *l, Lex_Save_Point save_point) {
+  l->index = save_point.index;
+  l->line = save_point.line;
+  l->column = save_point.column;
+}
+
 void print_stack(Stack *s) {
   platform_printf("[ ");
   for (uisz i = 0; i < s->len; ++i) {
+    uisz index = s->len - (i + 1);
+    Value_Item item = s->items[index];
     if (i > 0) platform_printf(", ");
-    switch (s->items[i].kind) {
+    switch (item.kind) {
     case VALUE_KIND_NUMBER:
-      platform_printf("Number(%.4f)", s->items[i].as_number.value);
+      platform_printf("Number(%.4f)", item.as_number.value);
       break;
     case VALUE_KIND_BOOL:
-      platform_printf("Bool(%s)", s->items[i].as_bool.value ? "true" : "false");
+      platform_printf("Bool(%s)", item.as_bool.value ? "true" : "false");
       break;
     case VALUE_KIND_POINTER:
-      platform_printf("Pointer(%p)", s->items[i].as_pointer.value);
+      platform_printf("Pointer(%p)", item.as_pointer.value);
       break;
     }
   }
@@ -307,6 +336,85 @@ bool stack_operation_requires_n_items(Stack *s, String_View sv, uisz n) {
 bool action_expects_value_kind(String_View sv, Value_Kind got, Value_Kind exp) {
   if (got == exp) return true;
   platform_printfn("[ERROR] Invalid type passed to "SV_Fmt_Str" expected pointer", SV_Fmt_Arg(sv));
+  return false;
+}
+
+double value_item_as_number(Value_Item item) {
+  switch (item.kind) {
+  case VALUE_KIND_NUMBER:
+    return item.as_number.value;
+  case VALUE_KIND_BOOL:
+    return (double)item.as_bool.value;
+  case VALUE_KIND_POINTER:
+    return (double)(uisz)item.as_pointer.value;
+  }
+  return 0.0;
+}
+
+bool value_item_as_bool(Value_Item item) {
+  switch (item.kind) {
+  case VALUE_KIND_NUMBER:
+    return item.as_number.value != 0;
+  case VALUE_KIND_BOOL:
+    return item.as_bool.value;
+  case VALUE_KIND_POINTER:
+    return item.as_pointer.value != NULL;
+  }
+  return false;
+}
+
+bool execute_token(Interpreter *it, bool inside_of_proc, Token t);
+
+
+// Expects word 'while' to have been consumed already
+bool execute_while(Interpreter *it, bool inside_of_proc) {
+  Lexer *l = &it->lexer;
+  Lex_Save_Point start_point = lexer_save_point(l);
+  Lex_Save_Point end_point = {0};
+  bool end_point_found = false;
+  while (lexer_next(l)) {
+    Token t = (const Token) l->token;
+    if (sv_eq_zstr(t.string, "begin")) {
+      if (it->stack.len == 0) {
+	platform_printfn("[ERROR] While loop requires at least one element on the stack to do evaluation but nothing is on the stack");
+	return false;
+      }
+
+      Value_Item item;
+      Stack_pop(&it->stack, &item);
+      if (!value_item_as_bool(item)) {
+	if (end_point_found) {
+	  lexer_restore_point(l, end_point);
+	  return true;
+	}
+	uisz level = 1;
+	while (level > 0) {
+	  if (!lexer_next(l)) return false;
+	  t = l->token;
+	  if (sv_eq_zstr(t.string, "while")) {
+	    level++;
+	  } else if (sv_eq_zstr(t.string, "end")) {
+	    level--;
+	  }
+	}
+	return true;
+      }
+
+      continue;
+    }
+
+    if (sv_eq_zstr(t.string, "end")) {
+      if (!end_point_found) {
+	end_point_found = true;
+	end_point = lexer_save_point(l);
+      }
+      lexer_restore_point(l, start_point);
+      continue;
+    }
+
+    if (!execute_token(it, inside_of_proc, t)) return false;
+  }
+
   return false;
 }
 
@@ -432,6 +540,7 @@ bool parse_proc(Interpreter *it) {
   // ==================================================
   // Parse Body
   // --------------------------------------------------
+  uisz level = 1;
   while (true) {
     if (!lexer_next(l)) return false;
     if (l->token.kind == TOKEN_KIND_NONE) {
@@ -443,8 +552,11 @@ bool parse_proc(Interpreter *it) {
       return false;
     }
     if (l->token.kind == TOKEN_KIND_IDENTIFIER) {
-      if (sv_eq_zstr(l->token.string, "end")) {
-	break;
+      if (sv_eq_zstr(l->token.string, "while")) {
+	level++;
+      } else if (sv_eq_zstr(l->token.string, "end")) {
+	level--;
+	if (level == 0) break;
       }
     }
 
@@ -454,31 +566,6 @@ bool parse_proc(Interpreter *it) {
   Procs_append(&it->procs, proc);
 
   return true;
-}
-
-double value_item_as_number(Value_Item item) {
-  switch (item.kind) {
-  case VALUE_KIND_NUMBER:
-    return item.as_number.value;
-  case VALUE_KIND_BOOL:
-    return (double)item.as_bool.value;
-  case VALUE_KIND_POINTER:
-    return (double)(uisz)item.as_pointer.value;
-  }
-  return 0.0;
-}
-
-bool value_item_as_bool(Value_Item item) {
-  switch (item.kind) {
-  case VALUE_KIND_NUMBER:
-    return item.as_number.value != 0;
-  case VALUE_KIND_BOOL:
-    return item.as_bool.value;
-  case VALUE_KIND_POINTER:
-    return item.as_pointer.value != NULL;
-  }
-
-  return false;
 }
 
 bool execute_proc(Interpreter *it, Proc *proc);
@@ -503,6 +590,16 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 	return false;
       }
       if (!parse_proc(it)) return false;
+      return true;
+    }
+
+    if (sv_eq_zstr(sv, "if")) {
+      platform_printfn("[TODO] if expressions are not implemented yet");
+      return false;
+    }
+
+    if (sv_eq_zstr(sv, "while")) {
+      if (!execute_while(it, inside_of_proc)) return false;
       return true;
     }
 
@@ -847,7 +944,13 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
       return false;
     }
 
-    platform_printfn("proc.qll:%zu:%zu: [ERROR] Unsupported symbol '"SV_Fmt_Str"'", t.line, t.column, SV_Fmt_Arg(sv));
+    platform_printfn(":%zu:%zu: [ERROR] Unsupported symbol '"SV_Fmt_Str"'", t.line, t.column, SV_Fmt_Arg(sv));
+    platform_printf("[INFO] Symbol bytes: [");
+    sv_iter(c, sv) {
+      if (c > sv.data) platform_printf(", ");
+      platform_printf("%d", (int)*c);
+    }
+    platform_printfn("]");
     return false;
 
   }
