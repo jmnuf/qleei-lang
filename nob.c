@@ -46,8 +46,8 @@ typedef struct {
 
 void usage(const char *program) {
   printf("Usage: %s [run|build]\n", program);
-  printf("    run        ---        Execute program after compiling\n", program);
-  printf("    build      ---        Force building of program\n", program);
+  printf("    run [(input).ql]      ---        Execute interpreter after compiling with an input file\n");
+  printf("    build                 ---        Force building of program\n");
 }
 
 bool build_unit(Cmd *cmd, Unit *u) {
@@ -94,10 +94,17 @@ int main(int argc, char **argv) {
   const char *program_name = shift(argv, argc);
   bool run_requested = false;
   bool build_demanded = false;
+  const char *run_input_file = NULL;
   while (argc > 0) {
     const char *arg = shift(argv, argc);
     if (streq(arg, "run")) {
       run_requested = true;
+      if (argc > 0) {
+        String_View sv = sv_from_cstr(*argv);
+        if (sv_end_with(sv, ".ql")) {
+          run_input_file = shift(argv, argc);
+        }
+      }
       continue;
     }
     if (streq(arg, "build")) {
@@ -156,10 +163,9 @@ int main(int argc, char **argv) {
 
   if (run_requested) {
     cmd_append(&cmd, native_output);
-    cmd_append(&cmd, "./examples/math.qll");
-    if (!cmd_run(&cmd)) return 1;
-    cmd_append(&cmd, native_output);
-    cmd_append(&cmd, "./examples/hello_world.qll");
+    if (run_input_file) {
+      cmd_append(&cmd, run_input_file);
+    }
     if (!cmd_run(&cmd)) return 1;
   }
 
