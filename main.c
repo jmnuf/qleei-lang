@@ -2,6 +2,13 @@
 
 #define return_defer(value) do { result = value; goto defer; } while(0)
 
+typedef struct {
+  const char *file_path;
+  uisz index;
+  uisz line;
+  uisz column;
+} Lex_Location;
+
 typedef enum {
   TOKEN_KIND_NONE = 0,
   TOKEN_KIND_EOF,
@@ -13,14 +20,14 @@ typedef enum {
 
 typedef struct {
   Token_Kind kind;
-  uisz line;
-  uisz column;
+  Lex_Location loc;
 
   String_View string;
   double number;
 } Token;
 
 typedef struct {
+  const char *input_path;
   const char *buffer;
   uisz buffer_len;
 
@@ -30,12 +37,6 @@ typedef struct {
 
   Token token;
 } Lexer;
-
-typedef struct {
-  uisz index;
-  uisz line;
-  uisz column;
-} Lex_Save_Point;
 
 typedef enum {
   VALUE_KIND_NUMBER,
@@ -71,9 +72,8 @@ typedef struct {
 define_list_methods(Value_Item, Stack)
 
 typedef struct {
-  Token *items;
-  uisz len;
-  uisz cap;
+  Lex_Location body_start;
+  Lex_Location body_end;
 
   String_View name_sv;
 
@@ -89,8 +89,6 @@ typedef struct {
     uisz cap;
   } outputs;
 } Proc;
-
-define_list_methods(Token, Proc)
 
 typedef struct {
   Proc *items;
@@ -136,9 +134,6 @@ bool is_identifier_char(char c) {
   return is_identifier_start_char(c) || is_number_char(c);
 }
 
-Lexer l = {0};
-Stack stack = {0};
-
 const char *get_token_kind_name(Token_Kind kind) {
   switch(kind) {
   case TOKEN_KIND_NONE:
@@ -169,17 +164,18 @@ const char *get_value_kind_name(Value_Kind kind) {
   return "<Unknown>";
 }
 
-void lexer_init(Lexer *l, const char *buffer, uisz buf_size) {
+void lexer_init(Lexer *l, const char *input_path, const char *buffer, uisz buf_size) {
+  l->input_path = input_path;
   l->buffer = buffer;
   l->buffer_len = buf_size;
   l->index = 0;
   l->line = 1;
   l->column = 1;
   l->token = (Token) { .string = { .data = buffer, .len = 0 } };
-  l->token.string.data = buffer;
 }
 
 bool lexer_next(Lexer *lexer) {
+  lexer->token.loc.file_path = lexer->input_path;
   lexer->token.kind = TOKEN_KIND_NONE;
   if (lexer->buffer == NULL) {
     platform_printfn("[ERROR] Attempting to lex into a NULL buffer");
@@ -190,16 +186,16 @@ bool lexer_next(Lexer *lexer) {
     char c = lexer->buffer[lexer->index++];
     while (is_space_char(c)) {
       if (c == '\n') {
-	lexer->line++;
-	lexer->column = 1;
+	      lexer->line++;
+	      lexer->column = 1;
       } else {
-	lexer->column++;
+	      lexer->column++;
       }
       c = lexer->buffer[lexer->index++];
     }
 
-    lexer->token.line = lexer->line;
-    lexer->token.column = lexer->column;
+    lexer->token.loc.line = lexer->line;
+    lexer->token.loc.column = lexer->column;
 
     if (is_number_char(c)) {
       lexer->token.string.data = lexer->buffer + (lexer->index - 1);
@@ -293,8 +289,9 @@ bool lexer_peek(Lexer *l, Token *t) {
   return true;
 }
 
-Lex_Save_Point lexer_save_point(Lexer *l) {
-  Lex_Save_Point save_point = {
+Lex_Location lexer_save_point(Lexer *l) {
+  Lex_Location save_point = {
+    .file_path = l->input_path,
     .index = l->index,
     .line = l->line,
     .column = l->column,
@@ -302,11 +299,16 @@ Lex_Save_Point lexer_save_point(Lexer *l) {
   return save_point;
 }
 
-void lexer_restore_point(Lexer *l, Lex_Save_Point save_point) {
+bool lexer_restore_point(Lexer *l, Lex_Location save_point) {
+  l->input_path = save_point.file_path;
   l->index = save_point.index;
   l->line = save_point.line;
   l->column = save_point.column;
+  return true;
 }
+
+#define loc_printfn(loc, ...) \
+do { platform_printf("%s:%zu:%zu: ", (loc).file_path, (loc).line, (loc).column); platform_printfn(__VA_ARGS__); } while (0)
 
 void print_stack(Stack *s) {
   platform_printf("[ ");
@@ -329,9 +331,9 @@ void print_stack(Stack *s) {
   platform_printf(" ]\n");
 }
 
-bool stack_operation_requires_n_items(Stack *s, String_View sv, uisz n) {
+bool stack_operation_requires_n_items(Lex_Location loc, Stack *s, String_View sv, uisz n) {
   if (s->len < n) {
-    platform_printfn("[ERROR] "SV_Fmt_Str" requires %zu items in the stack to execute", SV_Fmt_Arg(sv), n);
+    loc_printfn(loc, "[ERROR] "SV_Fmt_Str" requires %zu items in the stack to execute", SV_Fmt_Arg(sv), n);
     return false;
   }
   return true;
@@ -373,35 +375,35 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t);
 // Expects word 'while' to have been consumed already
 bool execute_while(Interpreter *it, bool inside_of_proc) {
   Lexer *l = &it->lexer;
-  Lex_Save_Point start_point = lexer_save_point(l);
-  Lex_Save_Point end_point = {0};
+  Lex_Location start_point = lexer_save_point(l);
+  Lex_Location end_point = {0};
   bool end_point_found = false;
   while (lexer_next(l)) {
     Token t = (const Token) l->token;
     if (sv_eq_zstr(t.string, "begin")) {
       if (it->stack.len == 0) {
-	platform_printfn("[ERROR] While loop requires at least one element on the stack to do evaluation but nothing is on the stack");
-	return false;
+	      platform_printfn("[ERROR] While loop requires at least one element on the stack to do evaluation but nothing is on the stack");
+	      return false;
       }
 
       Value_Item item;
       Stack_pop(&it->stack, &item);
       if (!value_item_as_bool(item)) {
-	if (end_point_found) {
-	  lexer_restore_point(l, end_point);
-	  return true;
-	}
-	uisz level = 1;
-	while (level > 0) {
-	  if (!lexer_next(l)) return false;
-	  t = l->token;
-	  if (sv_eq_zstr(t.string, "while")) {
-	    level++;
-	  } else if (sv_eq_zstr(t.string, "end")) {
-	    level--;
-	  }
-	}
-	return true;
+	      if (end_point_found) {
+	        lexer_restore_point(l, end_point);
+	        return true;
+	      }
+	      uisz level = 1;
+	      while (level > 0) {
+	        if (!lexer_next(l)) return false;
+	        t = l->token;
+	        if (sv_eq_zstr(t.string, "while")) {
+	          level++;
+	        } else if (sv_eq_zstr(t.string, "end")) {
+	          level--;
+	        }
+	      }
+	      return true;
       }
 
       continue;
@@ -409,8 +411,8 @@ bool execute_while(Interpreter *it, bool inside_of_proc) {
 
     if (sv_eq_zstr(t.string, "end")) {
       if (!end_point_found) {
-	end_point_found = true;
-	end_point = lexer_save_point(l);
+	      end_point_found = true;
+	      end_point = lexer_save_point(l);
       }
       lexer_restore_point(l, start_point);
       continue;
@@ -427,7 +429,7 @@ bool parse_proc(Interpreter *it) {
   Lexer *l = &it->lexer;
   if (!lexer_next(l)) return false;
   if (l->token.kind != TOKEN_KIND_IDENTIFIER) {
-    platform_printfn("%zu:%zu: [ERROR] Procedure is required to be given a name after 'proc' keyword", l->token.line, l->token.column);
+    platform_printfn("%zu:%zu: [ERROR] Procedure is required to be given a name after 'proc' keyword", l->token.loc.line, l->token.loc.column);
     return false;
   }
 
@@ -441,21 +443,21 @@ bool parse_proc(Interpreter *it) {
   // Parse Inputs
   // --------------------------------------------------
   if (!sv_eq_zstr(l->token.string, "[")) {
-    platform_printfn("%zu:%zu: [ERROR] After procedure name must specify inputs & outputs like `[] -> []`", l->token.line, l->token.column);
+    loc_printfn(l->token.loc, "[ERROR] After procedure name must specify inputs & outputs like `[] -> []`");
     platform_printfn("[NOTE] The return type is just imaginary, we don't check if you honor it KEKW");
     return false;
   }
 
   while (!sv_eq_zstr(l->token.string, "]")) {
     if (!lexer_next(l)) {
-      platform_printfn("%zu:%zu: [ERROR] After procedure name must specify inputs & outputs like `[] -> []`", l->token.line, l->token.column);
+      loc_printfn(l->token.loc, "[ERROR] After procedure name must specify inputs & outputs like `[] -> []`");
       platform_printfn("[NOTE] The return type is just imaginary, we don't check if you honor it KEKW");
       return false;
     }
     if (sv_eq_zstr(l->token.string, "]")) break;
 
     if (l->token.kind != TOKEN_KIND_IDENTIFIER) {
-      platform_printfn("%zu:%zu: [ERROR] Unexpected %s token when expecting identifier for type name", l->token.line, l->token.column, get_token_kind_name(l->token.kind));
+      loc_printfn(l->token.loc, "[ERROR] Unexpected %s token when expecting identifier for type name", get_token_kind_name(l->token.kind));
       platform_printfn("[NOTE] Token source: '"SV_Fmt_Str"'", SV_Fmt_Arg(l->token.string));
       return false;
     }
@@ -467,7 +469,7 @@ bool parse_proc(Interpreter *it) {
     } else if (sv_eq_zstr(l->token.string, "bool")) {
       alist_append(&proc.outputs, VALUE_KIND_BOOL);
     } else {
-      platform_printfn("%zu:%zu: [ERROR] Invalid type name only 'pointer', 'ptr', and 'number' types exist", l->token.line, l->token.column);
+      loc_printfn(l->token.loc, "[ERROR] Invalid type name only 'pointer', 'ptr', and 'number' types exist");
       return false;
     }
 
@@ -480,7 +482,7 @@ bool parse_proc(Interpreter *it) {
   }
 
   if (!sv_eq_zstr(l->token.string, "]")) {
-    platform_printfn("%zu:%zu: [ERROR] After procedure name must specify inputs & outputs like `[] -> []`", l->token.line, l->token.column);
+    loc_printfn(l->token.loc, "[ERROR] After procedure name must specify inputs & outputs like `[] -> []`");
     platform_printfn("[NOTE] Token source: '"SV_Fmt_Str"'", SV_Fmt_Arg(l->token.string));
     platform_printfn("[NOTE] The return type is just imaginary, we don't check if you honor it KEKW");
     return false;
@@ -489,7 +491,7 @@ bool parse_proc(Interpreter *it) {
 
 
   if (!sv_eq_zstr(l->token.string, "->")) {
-    platform_printfn("%zu:%zu: [ERROR] Expected arrow symbol '->' between proc inputs and outputs", l->token.line, l->token.column);
+    loc_printfn(l->token.loc, "[ERROR] Expected arrow symbol '->' between proc inputs and outputs");
     return false;
   }
   if (!lexer_next(l)) return false;
@@ -498,20 +500,20 @@ bool parse_proc(Interpreter *it) {
   // Parse Outputs
   // --------------------------------------------------
   if (!sv_eq_zstr(l->token.string, "[")) {
-    platform_printfn("%zu:%zu: [ERROR] After procedure inputs outputs must be specified: <input> -> <output>", l->token.line, l->token.column);
+    loc_printfn(l->token.loc, "[ERROR] After procedure inputs outputs must be specified: <input> -> <output>");
     platform_printfn("[NOTE] Found '"SV_Fmt_Str"' but expected '['", SV_Fmt_Arg(l->token.string));
     return false;
   }
 
   while (l->token.kind != TOKEN_KIND_SYMBOL || !sv_eq_zstr(l->token.string, "]")) {
     if (!lexer_next(l)) {
-      platform_printfn("%zu:%zu: [ERROR] After procedure inputs outputs must be specified", l->token.line, l->token.column);
+      loc_printfn(l->token.loc, "[ERROR] After procedure inputs outputs must be specified");
       return false;
     }
     if (sv_eq_zstr(l->token.string, "]")) break;
 
     if (l->token.kind != TOKEN_KIND_IDENTIFIER) {
-      platform_printfn("%zu:%zu: [ERROR] Unexpected %s token when expecting identifier for type name", l->token.line, l->token.column, get_token_kind_name(l->token.kind));
+      loc_printfn(l->token.loc, "[ERROR] Unexpected %s token when expecting identifier for type name", get_token_kind_name(l->token.kind));
       return false;
     }
 
@@ -522,7 +524,7 @@ bool parse_proc(Interpreter *it) {
     } else if (sv_eq_zstr(l->token.string, "bool")) {
       alist_append(&proc.outputs, VALUE_KIND_BOOL);
     } else {
-      platform_printfn("%zu:%zu: [ERROR] Invalid type name only 'pointer', 'ptr', and 'number' types exist", l->token.line, l->token.column);
+      loc_printfn(l->token.loc, "[ERROR] Invalid type name only 'pointer', 'ptr', and 'number' types exist");
       return false;
     }
 
@@ -535,7 +537,7 @@ bool parse_proc(Interpreter *it) {
   }
 
   if (!sv_eq_zstr(l->token.string, "]")) {
-    platform_printfn("%zu:%zu: [ERROR] After procedure inputs outputs must be specified", l->token.line, l->token.column);
+    loc_printfn(l->token.loc, "[ERROR] After procedure inputs outputs must be specified");
     platform_printfn("[NOTE] The return type is just imaginary, we don't check if you honor it KEKW");
     return false;
   }
@@ -544,6 +546,7 @@ bool parse_proc(Interpreter *it) {
   // ==================================================
   // Parse Body
   // --------------------------------------------------
+  proc.body_start = lexer_save_point(l);
   uisz level = 1;
   while (true) {
     if (!lexer_next(l)) return false;
@@ -557,14 +560,15 @@ bool parse_proc(Interpreter *it) {
     }
     if (l->token.kind == TOKEN_KIND_IDENTIFIER) {
       if (sv_eq_zstr(l->token.string, "while")) {
-	level++;
+	      level++;
       } else if (sv_eq_zstr(l->token.string, "end")) {
-	level--;
-	if (level == 0) break;
+	      level--;
+	      if (level == 0) {
+          proc.body_end = lexer_save_point(l);
+          break;
+        }
       }
     }
-
-    Proc_append(&proc, l->token);
   }
 
   Procs_append(&it->procs, proc);
@@ -590,8 +594,8 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
   case TOKEN_KIND_IDENTIFIER:
     if (sv_eq_zstr(sv, "proc")) {
       if (inside_of_proc) {
-	platform_printfn("[ERROR] Cannot define a procedure while inside of a procedure");
-	return false;
+	      platform_printfn("[ERROR] Cannot define a procedure while inside of a procedure");
+	      return false;
       }
       if (!parse_proc(it)) return false;
       return true;
@@ -609,36 +613,66 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [number] -> []
     if (sv_eq_zstr(sv, "print_number")) {
-      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
       Value_Item item;
       Stack_pop(stack, &item);
       switch (item.kind) {
       case VALUE_KIND_NUMBER:
-	platform_printfn("%.4f", item.as_number.value);
-	break;
+	      platform_printfn("%.4f", item.as_number.value);
+	      break;
       case VALUE_KIND_BOOL:
-	platform_printfn("%d", (int)item.as_bool.value);
-	break;
+	      platform_printfn("%d", (int)item.as_bool.value);
+	      break;
       case VALUE_KIND_POINTER:
-	platform_printfn("%zu", (uisz)item.as_pointer.value);
-	break;
+	      platform_printfn("%zu", (uisz)item.as_pointer.value);
+	      break;
       }
       return true;
     }
 
     // [number] -> []
+    if (sv_eq_zstr(sv, "print_uisz")) {
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Value_Item item;
+      Stack_pop(stack, &item);
+      switch (item.kind) {
+      case VALUE_KIND_NUMBER:
+	      platform_printfn("%zu", (uisz)item.as_number.value);
+	      break;
+      case VALUE_KIND_BOOL:
+	      platform_printfn("%zu", (uisz)item.as_bool.value);
+	      break;
+      case VALUE_KIND_POINTER:
+	      platform_printfn("%zu", (uisz)item.as_pointer.value);
+	      break;
+      }
+      return true;
+    }
+
+    // [pointer] -> []
+    if (sv_eq_zstr(sv, "print_ptr")) {
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Value_Item item;
+      Stack_pop(stack, &item);
+      if (!action_expects_value_kind(sv, item.kind, VALUE_KIND_POINTER)) return false;
+      void *ptr = item.as_pointer.value;
+      platform_printfn("%p", ptr);
+      return true;
+    }
+
+    // [number] -> []
     if (sv_eq_zstr(sv, "print_char")) {
-      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
       Value_Item item;
       Stack_pop(stack, &item);
       if (item.kind != VALUE_KIND_NUMBER) {
-	platform_printfn("[ERROR] Invalid item type passed to print_char");
-	return false;
+	      platform_printfn("[ERROR] Invalid item type passed to print_char");
+	      return false;
       }
       double n = item.as_number.value;
       if (n > 255) {
-	platform_printfn("[ERROR] Attempting to read a number as a char that exceeds the char limit of 255: %zu", (uisz)n);
-	return false;
+	      platform_printfn("[ERROR] Attempting to read a number as a char that exceeds the char limit of 255: %zu", (uisz)n);
+	      return false;
       }
       char c = (char)n;
       platform_printfn("%c", c);
@@ -647,12 +681,12 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [bool] -> []
     if (sv_eq_zstr(sv, "print_bool")) {
-      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
       Value_Item item;
       Stack_pop(stack, &item);
       if (item.kind != VALUE_KIND_BOOL) {
-	platform_printfn("[ERROR] Invalid item type passed to print_bool");
-	return false;
+	      platform_printfn("[ERROR] Invalid item type passed to print_bool");
+	      return false;
       }
       platform_printfn(item.as_bool.value ? "true" : "false");
       return true;
@@ -666,12 +700,12 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [pointer] -> []
     if (sv_eq_zstr(sv, "print_zstr")) {
-      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
       Value_Item item;
       Stack_pop(stack, &item);
       if (item.kind != VALUE_KIND_POINTER) {
-	platform_printfn("[ERROR] Invalid type passed to "SV_Fmt_Str" expected pointer", SV_Fmt_Arg(sv));
-	return false;
+	      platform_printfn("[ERROR] Invalid type passed to "SV_Fmt_Str" expected pointer", SV_Fmt_Arg(sv));
+	      return false;
       }
       char *zstr = item.as_pointer.value;
       platform_printfn("%s", zstr);
@@ -680,51 +714,66 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [T] -> [T, T]
     if (sv_eq_zstr(sv, "dup")) {
-      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
       Value_Item n = *Stack_last(stack);
+      Stack_append(stack, n);
+      return true;
+    }
+
+    // [a, b] -> [b, a, b]
+    if (sv_eq_zstr(sv, "over")) {
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
+      Value_Item n = stack->items[stack->len-2];
       Stack_append(stack, n);
       return true;
     }
 
     // [T] -> []
     if (sv_eq_zstr(sv, "drop")) {
-      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
       Stack_pop(stack, NULL);
       return true;
     }
 
     // [a, b] -> [b, a]
-    if (sv_eq_zstr(sv, "rot2")) {
-      if (!stack_operation_requires_n_items(stack, sv, 2)) return false;
+    if (sv_eq_zstr(sv, "rot2") || sv_eq_zstr(sv, "swap2")) {
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
       Stack_swap(stack, stack->len - 1, stack->len - 2);
       return true;
     }
 
-    // [a, b, c] -> [c, a, b]
-    if (sv_eq_zstr(sv, "rot3")) {
-      if (!stack_operation_requires_n_items(stack, sv, 3)) return false;
+    // [a, b, c] -> [c, b, a]
+    if (sv_eq_zstr(sv, "swap3")) {
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 3)) return false;
       Stack_swap(stack, stack->len - 1, stack->len - 3);
-      Stack_swap(stack, stack->len - 1, stack->len - 2);
+      return true;
+    }
+
+    // [a, b, c] -> [a, b, c]
+    if (sv_eq_zstr(sv, "rot3")) {
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 3)) return false;
+      Stack_swap(stack, stack->len - 1, stack->len - 3); // [a, b, c] -> [c, b, a]
+      Stack_swap(stack, stack->len - 1, stack->len - 2); // [c, b, a] -> [b, c, a]
       return true;
     }
 
     // [] -> - | [T] -> !
     if (sv_eq_zstr(sv, "assert_empty")) {
       if (stack->len != 0) {
-	platform_printfn("[ERROR] Expected stack to be empty but %zu elements remain in it", stack->len);
-	print_stack(stack);
+	      platform_printfn("[ERROR] Expected stack to be empty but %zu elements remain in it", stack->len);
+	      print_stack(stack);
       }
       return true;
     }
 
     // [number(uisz)] -> [ptr]
     if (sv_eq_zstr(sv, "mem_alloc")) {
-      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
       Value_Item item;
       Stack_pop(stack, &item);
       if (item.kind != VALUE_KIND_NUMBER) {
-	platform_printfn("[ERROR] Invalid type passed to "SV_Fmt_Str" expected number", SV_Fmt_Arg(sv));
-	return false;
+	      platform_printfn("[ERROR] Invalid type passed to "SV_Fmt_Str" expected number", SV_Fmt_Arg(sv));
+	      return false;
       }
       uisz n = (uisz)item.as_number.value;
       void *ptr = platform_mem_alloc(n);
@@ -736,33 +785,52 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [ptr] -> -
     if (sv_eq_zstr(sv, "mem_free")) {
-      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
       Value_Item item;
       Stack_pop(stack, &item);
       if (item.kind != VALUE_KIND_POINTER) {
-	platform_printfn("[ERROR] Invalid type passed to "SV_Fmt_Str" expected pointer", SV_Fmt_Arg(sv));
-	return false;
+	      platform_printfn("[ERROR] Invalid type passed to "SV_Fmt_Str" expected pointer", SV_Fmt_Arg(sv));
+	      return false;
       }
       void *ptr = item.as_pointer.value;
       platform_mem_free(ptr);
       return true;
     }
 
+    if (sv_eq_zstr(sv, "mem_save_si8")) {
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
+      Value_Item ptr_item, val_item;
+
+      Stack_pop(stack, &ptr_item);
+      if (!action_expects_value_kind(sv, ptr_item.kind, VALUE_KIND_POINTER)) return false;
+
+      Stack_pop(stack, &val_item);
+      if (!action_expects_value_kind(sv, val_item.kind, VALUE_KIND_NUMBER)) return false;
+
+      si8 *ptr = (si8*)ptr_item.as_pointer.value;
+      si8  val =  (si8)val_item.as_number.value;
+
+      *ptr = val;
+      return true;
+    }
+
     // [ptr, ui8] -> -
     if (sv_eq_zstr(sv, "mem_save_ui8")) {
-      if (!stack_operation_requires_n_items(stack, sv, 2)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
       Value_Item ptr_item, val_item;
 
       Stack_pop(stack, &ptr_item);
       if (ptr_item.kind != VALUE_KIND_POINTER) {
-	platform_printfn("[ERROR] "SV_Fmt_Str" requires a pointer at the top of the stack", SV_Fmt_Arg(sv));
-	return false;
+	      loc_printfn(t.loc, "[ERROR] "SV_Fmt_Str" requires a pointer at the top of the stack", SV_Fmt_Arg(sv));
+        platform_printf("[NOTE] Current stack: ");
+        print_stack(stack);
+	      return false;
       }
 
       Stack_pop(stack, &val_item);
       if (val_item.kind != VALUE_KIND_NUMBER) {
-	platform_printfn("[ERROR] "SV_Fmt_Str" requires a number second to the top of the stack", SV_Fmt_Arg(sv));
-	return false;
+	      platform_printfn("[ERROR] "SV_Fmt_Str" requires a number second to the top of the stack", SV_Fmt_Arg(sv));
+	      return false;
       }
 
       ui8 *ptr = (ui8*)ptr_item.as_pointer.value;
@@ -774,7 +842,7 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [ptr] -> [number]
     if (sv_eq_zstr(sv, "mem_load_ui8")) {
-      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
       Value_Item item;
       Stack_pop(stack, &item);
       if (!action_expects_value_kind(sv, item.kind, VALUE_KIND_POINTER)) return false;
@@ -788,7 +856,7 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [ptr, ui32] -> -
     if (sv_eq_zstr(sv, "mem_save_ui32")) {
-      if (!stack_operation_requires_n_items(stack, sv, 2)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
       Value_Item ptr_item, val_item;
       if (!action_expects_value_kind(sv, ptr_item.kind, VALUE_KIND_POINTER)) return false;
       if (!action_expects_value_kind(sv, val_item.kind, VALUE_KIND_NUMBER)) return false;
@@ -800,7 +868,7 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [ptr] -> [ui32]
     if (sv_eq_zstr(sv, "mem_load_ui32")) {
-      if (!stack_operation_requires_n_items(stack, sv, 1)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
       Value_Item item;
       if (!action_expects_value_kind(sv, item.kind, VALUE_KIND_POINTER)) return false;
       ui32 val = *(ui32*)item.as_pointer.value;
@@ -814,17 +882,17 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
     {
       Proc *proc = find_proc_by_sv_name(&it->procs, sv);
       if (proc != NULL) {
-	if (!stack_operation_requires_n_items(stack, sv, proc->inputs.len)) return false;
-	for (uisz i = 0; i < proc->inputs.len; ++i) {
-	  Value_Kind received = (stack->items[(proc->inputs.len - (i + 1))]).kind;
-	  Value_Kind expected = proc->inputs.items[i];
-	  if (received != expected) {
-	    platform_printfn("[ERROR] Proc "SV_Fmt_Str" expected %s but got %s", SV_Fmt_Arg(proc->name_sv), get_value_kind_name(expected), get_value_kind_name(received));
-	    return false;
-	  }
-	}
-	execute_proc(it, proc);
-	return true;
+	      if (!stack_operation_requires_n_items(t.loc, stack, sv, proc->inputs.len)) return false;
+	      for (uisz i = 0; i < proc->inputs.len; ++i) {
+	        Value_Kind received = (stack->items[(proc->inputs.len - (i + 1))]).kind;
+	        Value_Kind expected = proc->inputs.items[i];
+	        if (received != expected) {
+	          platform_printfn("[ERROR] Proc "SV_Fmt_Str" expected %s but got %s", SV_Fmt_Arg(proc->name_sv), get_value_kind_name(expected), get_value_kind_name(received));
+	          return false;
+	        }
+	      }
+	      if (!execute_proc(it, proc)) return false;
+	      return true;
       }
     }
 
@@ -841,30 +909,30 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
   case TOKEN_KIND_SYMBOL:
     if (sv_eq_zstr(sv, "+")) {
-      if (!stack_operation_requires_n_items(stack, sv, 2)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
       Value_Item a, b;
       Stack_pop(stack, &a);
       Stack_pop(stack, &b);
       
       if (a.kind == VALUE_KIND_POINTER && b.kind == VALUE_KIND_POINTER) {
-	platform_printfn("[ERROR] Cannot add 2 pointers together");
-	return false;
+	      platform_printfn("[ERROR] Cannot add 2 pointers together");
+	      return false;
       }
 
       if (a.kind == VALUE_KIND_POINTER || b.kind == VALUE_KIND_POINTER) {
-	char *ptr;
-	uisz n;
-	if (a.kind == VALUE_KIND_POINTER) {
-	  ptr = a.as_pointer.value;
-	  n = (uisz)value_item_as_number(b);
-	} else {
-	  ptr = b.as_pointer.value;
-	  n = (uisz)value_item_as_number(a);
-	}
-	a.as_pointer.kind = VALUE_KIND_POINTER;
-	a.as_pointer.value = ptr - n;
-	Stack_append(stack, a);
-	return true;
+	      char *ptr;
+	      uisz n;
+	      if (a.kind == VALUE_KIND_POINTER) {
+	        ptr = a.as_pointer.value;
+	        n = (uisz)value_item_as_number(b);
+	      } else {
+	        ptr = b.as_pointer.value;
+	        n = (uisz)value_item_as_number(a);
+	      }
+	      a.as_pointer.kind = VALUE_KIND_POINTER;
+	      a.as_pointer.value = ptr + n;
+	      Stack_append(stack, a);
+	      return true;
       }
 
       a.as_number.value = value_item_as_number(a) + value_item_as_number(b);
@@ -873,36 +941,36 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
     }
 
     if (sv_eq_zstr(sv, "-")) {
-      if (!stack_operation_requires_n_items(stack, sv, 2)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
       Value_Item a, b;
       Stack_pop(stack, &a);
       Stack_pop(stack, &b);
 
       if (a.kind == VALUE_KIND_POINTER && b.kind == VALUE_KIND_POINTER) {
-	platform_printfn("[ERROR] Cannot do subtraction between 2 pointers");
-	return false;
+	      platform_printfn("[ERROR] Cannot do subtraction between 2 pointers");
+	      return false;
       }
 
       if (a.kind == VALUE_KIND_POINTER || b.kind == VALUE_KIND_POINTER) {
-	char *ptr;
-	uisz n;
-	if (a.kind == VALUE_KIND_POINTER) {
-	  ptr = a.as_pointer.value;
-	  n = (uisz)value_item_as_number(b);
-	} else {
-	  ptr = b.as_pointer.value;
-	  n = (uisz)value_item_as_number(a);
-	}
+	      char *ptr;
+	      uisz n;
+	      if (a.kind == VALUE_KIND_POINTER) {
+	        ptr = a.as_pointer.value;
+	        n = (uisz)value_item_as_number(b);
+	      } else {
+	        ptr = b.as_pointer.value;
+	        n = (uisz)value_item_as_number(a);
+	      }
 
-	if (n > (uisz)ptr) {
-	  platform_printfn("[ERROR] Pointer arithmetic ends results in a negative value");
-	  return false;
-	}
+	      if (n > (uisz)ptr) {
+	        platform_printfn("[ERROR] Pointer arithmetic ends results in a negative value");
+	        return false;
+	      }
 
-	a.as_pointer.kind  = VALUE_KIND_POINTER;
-	a.as_pointer.value = ptr - n;
-	Stack_append(stack, a);
-	return true;
+	      a.as_pointer.kind  = VALUE_KIND_POINTER;
+	      a.as_pointer.value = ptr - n;
+	      Stack_append(stack, a);
+	      return true;
       }
 
       a.as_number.value = value_item_as_number(a) - value_item_as_number(b);
@@ -911,14 +979,14 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
     }
 
     if (sv_eq_zstr(sv, "/")) {
-      if (!stack_operation_requires_n_items(stack, sv, 2)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
       Value_Item a, b;
       Stack_pop(stack, &a);
       Stack_pop(stack, &b);
       
       if (a.kind == VALUE_KIND_POINTER || b.kind == VALUE_KIND_POINTER) {
-	platform_printfn("[ERROR] Cannot do division with pointers");
-	return false;
+	      platform_printfn("[ERROR] Cannot do division with pointers");
+	      return false;
       }
 
       a.as_number.value = value_item_as_number(a) / value_item_as_number(b);
@@ -927,14 +995,14 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
     }
 
     if (sv_eq_zstr(sv, "*")) {
-      if (!stack_operation_requires_n_items(stack, sv, 2)) return false;
+      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
       Value_Item a, b;
       Stack_pop(stack, &a);
       Stack_pop(stack, &b);
 
       if (a.kind == VALUE_KIND_POINTER || b.kind == VALUE_KIND_POINTER) {
-	platform_printfn("[ERROR] Cannot do division with pointers");
-	return false;
+	      loc_printfn(t.loc, "[ERROR] Cannot do division with pointers");
+	      return false;
       }
 
       a.as_number.value = value_item_as_number(a) * value_item_as_number(b);
@@ -943,12 +1011,13 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
     }
 
     if (sv_eq_zstr(sv, "!")) {
+      loc_printfn(t.loc, "[SYSTEM] ABORTED");
+      platform_printf("[NOTE] Stack state: ");
       print_stack(stack);
-      platform_printfn("[SYSTEM] ABORTED");
       return false;
     }
 
-    platform_printfn(":%zu:%zu: [ERROR] Unsupported symbol '"SV_Fmt_Str"'", t.line, t.column, SV_Fmt_Arg(sv));
+    loc_printfn(t.loc, "[ERROR] Unsupported symbol '"SV_Fmt_Str"'", SV_Fmt_Arg(sv));
     platform_printf("[INFO] Symbol bytes: [");
     sv_iter(c, sv) {
       if (c > sv.data) platform_printf(", ");
@@ -965,10 +1034,20 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
 
 bool execute_proc(Interpreter *it, Proc *proc) {
-  list_foreach(Token, pToken, proc) {
-    if (!execute_token(it, true, *pToken)) return false;
+  Lexer *l = &it->lexer;
+  Lex_Location save_point = lexer_save_point(l);
+  
+  lexer_restore_point(l, proc->body_start);
+
+  bool ok = true;
+  while ((ok = lexer_next(l))) {
+    if (sv_eq_zstr(l->token.string, "end")) break;
+    if (!execute_token(it, true, l->token)) return false;
   }
-  return true;
+
+  if (ok) lexer_restore_point(l, save_point);
+
+  return ok;
 }
 
 bool interpreter_step(Interpreter *it) {
@@ -979,20 +1058,9 @@ bool interpreter_step(Interpreter *it) {
   return true;
 }
 
-void interpreter_lexer_init(Interpreter *it, const char *buffer, uisz buf_size) {
-  lexer_init(&it->lexer, buffer, buf_size);
+void interpreter_lexer_init(Interpreter *it, const char *input_path, const char *buffer, uisz buf_size) {
+  lexer_init(&it->lexer, input_path, buffer, buf_size);
   it->stack.len = 0;
-}
-
-Interpreter *alloc_new_interpreter(const char *buffer, uisz buf_size) {
-  Interpreter it = {0};
-  if (buffer != NULL) lexer_init(&it.lexer, buffer, buf_size);
-
-  return platform_mem_copy(
-    platform_mem_alloc(sizeof(Interpreter)),
-    &it,
-    sizeof(Interpreter)
-  );
 }
 
 bool interpreter_exec(Interpreter *it) {
@@ -1003,11 +1071,11 @@ bool interpreter_exec(Interpreter *it) {
 }
 
 
-bool interpret_buffer(const char *buffer, uisz buf_size) {
+bool interpret_buffer(const char *buffer_source_path, const char *buffer, uisz buf_size) {
   bool result = false;
 
   Interpreter it = {0};
-  interpreter_lexer_init(&it, buffer, buf_size);
+  interpreter_lexer_init(&it, buffer_source_path, buffer, buf_size);
 
   while (interpreter_step(&it)) {
     if (it.done) return_defer(true);
@@ -1051,7 +1119,7 @@ int main(int argc, char **argv) {
 
   if (sb.count > 0 && sb.items[sb.count - 1] == 0) sb.count--;
 
-  if (!interpret_buffer(sb.items, sb.count)) return 1;
+  if (!interpret_buffer(input_path, sb.items, sb.count)) return 1;
 
   return 0;
 }

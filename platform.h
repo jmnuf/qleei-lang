@@ -47,6 +47,7 @@ bool sv_eq_sv(String_View sv_a, String_View sv_b);
 #define sv_iter(it, sv) for (const char *it = (sv).data; it < (sv).data + (sv).len; ++it)
 
 uisz zstr_len(const char *zstr);
+bool zstr_eq(const char *za, const char *zb);
 
 double parse_number(String_View sv);
 
@@ -249,6 +250,18 @@ bool sv_eq_sv(String_View sv_a, String_View sv_b) {
   return true;
 }
 
+bool zstr_eq(const char *za, const char *zb) {
+#ifdef PLATFORM_DESKTOP
+  return strcmp(za, zb) == 0;
+#else // PLATFORM_BROWSER
+  uisz len = zstr_len(za);
+  if (len != zstr_len(zb)) return false;
+  for (uisz i = 0; i < len; ++i) {
+    if (za[i] != zb[i]) return false;
+  }
+  return true;
+#endif // PLATFORM_DESKTOP
+}
 
 void *platform_temp_alloc(uisz bytes_count) {
   if (_platform_temporary_buffer_index >= PLATFORM_TEMP_BUF_SIZE) {
