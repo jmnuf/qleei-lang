@@ -9,6 +9,9 @@ typedef struct {
   uisz column;
 } Lex_Location;
 
+#define loc_printfn(loc, ...) \
+do { platform_printf("%s:%zu:%zu: ", (loc).file_path, (loc).line, (loc).column); platform_printfn(__VA_ARGS__); } while (0)
+
 typedef enum {
   TOKEN_KIND_NONE = 0,
   TOKEN_KIND_EOF,
@@ -194,52 +197,6 @@ bool lexer_next(Lexer *lexer) {
       c = lexer->buffer[lexer->index++];
     }
 
-    lexer->token.loc.line = lexer->line;
-    lexer->token.loc.column = lexer->column;
-
-    if (is_number_char(c)) {
-      lexer->token.string.data = lexer->buffer + (lexer->index - 1);
-      lexer->token.string.len = 0;
-      bool decimal = false;
-      while (is_number_char(c)) {
-	lexer->column++;
-	lexer->token.string.len++;
-	c = lexer->buffer[lexer->index++];
-	if (c == '.' && !decimal) {
-	  decimal = true;
-	  c = lexer->buffer[lexer->index++];
-	}
-      }
-      lexer->index--;
-      // lexer->column++;
-      lexer->token.kind = TOKEN_KIND_NUMBER;
-      lexer->token.number = parse_number(lexer->token.string);
-      return true;
-    }
-
-    if (is_identifier_start_char(c)) {
-      lexer->token.string.data = lexer->buffer + (lexer->index-1);
-      lexer->token.string.len = 0;
-      while (is_identifier_char(c)) {
-	lexer->token.string.len++;
-	c = lexer->buffer[lexer->index++];
-	lexer->column++;
-      }
-      lexer->index -= 1;
-
-      if (sv_eq_zstr(lexer->token.string, "true")) {
-	lexer->token.kind = TOKEN_KIND_BOOL;
-	lexer->token.number = 1;
-      } else if (sv_eq_zstr(lexer->token.string, "false")) {
-	lexer->token.kind = TOKEN_KIND_BOOL;
-	lexer->token.number = 0;
-      } else {
-	lexer->token.kind = TOKEN_KIND_IDENTIFIER;
-      }
-
-      return true;
-    }
-
     // If somehow the last char is a null terminator we just ignore it
     if (lexer->index >= lexer->buffer_len) {
       if (c == 0) break;
@@ -250,28 +207,106 @@ bool lexer_next(Lexer *lexer) {
       platform_printfn("[WARN] Unexpected control character found in input: %d", (int)c);
       continue;
     }
+
+    Token *token = &lexer->token;
+    token->loc.line = lexer->line;
+    token->loc.column = lexer->column;
+    Lex_Location loc = token->loc;
+
+    if (is_number_char(c)) {
+      token->string.data = lexer->buffer + (lexer->index - 1);
+      token->string.len = 0;
+      bool decimal = false;
+      while (is_number_char(c)) {
+	      lexer->column++;
+	      token->string.len++;
+	      c = lexer->buffer[lexer->index++];
+	      if (c == '.' && !decimal) {
+	        decimal = true;
+	        c = lexer->buffer[lexer->index++];
+	      }
+      }
+      lexer->index--;
+      // lexer->column++;
+      token->kind = TOKEN_KIND_NUMBER;
+      token->number = parse_number(token->string);
+      return true;
+    }
+
+    if (is_identifier_start_char(c)) {
+      token->string.data = lexer->buffer + (lexer->index-1);
+      token->string.len = 0;
+      while (is_identifier_char(c)) {
+	      token->string.len++;
+	      c = lexer->buffer[lexer->index++];
+	      lexer->column++;
+      }
+      lexer->index -= 1;
+
+      if (sv_eq_zstr(token->string, "true")) {
+	      token->kind = TOKEN_KIND_BOOL;
+	      token->number = 1;
+      } else if (sv_eq_zstr(token->string, "false")) {
+	      token->kind = TOKEN_KIND_BOOL;
+	      token->number = 0;
+      } else {
+	      token->kind = TOKEN_KIND_IDENTIFIER;
+      }
+
+      return true;
+    }
+
+    if (c == '\'') {
+      token->kind = TOKEN_KIND_NUMBER;
+      token->string.data = lexer->buffer + (lexer->index - 1);
+      token->string.len = 3;
+
+      if (lexer->index >= lexer->buffer_len) {
+        loc_printfn(loc, "[LexError] Unterminated ASCII char literal");
+        return false;
+      }
+      lexer->column++;
+      loc.column++;
+
+      c = lexer->buffer[lexer->index++];
+      token->number = (double)c;
+      if (lexer->index >= lexer->buffer_len) {
+        loc_printfn(loc, "[LexError] Unterminated ASCII char literal");
+        return false;
+      }
+
+      loc.column++;
+      lexer->column++;
+      c = lexer->buffer[lexer->index++];
+      if (c != '\'') {
+        loc_printfn(loc, "[LexError] ASCII char literal does not end with ' or takes more than 1 byte");
+        return false;
+      }
+      lexer->column++;
+      return true;
+    }
     
-    lexer->token.kind = TOKEN_KIND_SYMBOL;
-    lexer->token.string.data = lexer->buffer + (lexer->index - 1);
-    lexer->token.string.len = 1;
+    token->kind = TOKEN_KIND_SYMBOL;
+    token->string.data = lexer->buffer + (lexer->index - 1);
+    token->string.len = 1;
     lexer->column++;
 
     if (c == '-') {
       if (lexer->index < lexer->buffer_len && lexer->buffer[lexer->index] == '>') {
-	lexer->index++;
-	lexer->column++;
-	lexer->token.string.len = 2;
-	return true;
+	      lexer->index++;
+	      lexer->column++;
+	      token->string.len = 2;
+	      return true;
       }
     }
 
     if (*(lexer->buffer + (lexer->index - 1)) == '/') {
       if (lexer->buffer_len > lexer->index && lexer->buffer[lexer->index] == '/') {
-	while (lexer->index < lexer->buffer_len && lexer->buffer[lexer->index] != '\n') {
-	  lexer->column++;
-	  lexer->index++;
-	}
-	continue;
+	      while (lexer->index < lexer->buffer_len && lexer->buffer[lexer->index] != '\n') {
+	        lexer->column++;
+	        lexer->index++;
+	      }
+	      continue;
       }
     }
     
@@ -306,9 +341,6 @@ bool lexer_restore_point(Lexer *l, Lex_Location save_point) {
   l->column = save_point.column;
   return true;
 }
-
-#define loc_printfn(loc, ...) \
-do { platform_printf("%s:%zu:%zu: ", (loc).file_path, (loc).line, (loc).column); platform_printfn(__VA_ARGS__); } while (0)
 
 void print_stack(Stack *s) {
   platform_printf("[ ");
