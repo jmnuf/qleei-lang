@@ -5,7 +5,7 @@ This is not meant to be a serious language in any way.
 
 This language tries to do as little "parsing" as possible so it runs the code as it sees it.
 
-Try it out at the [github page](https://jmnuf.github.com/qleei-lang/web/)
+Try it out at the [online playground](https://jmnuf.github.io/qleei-lang/playground/)
 
 ## Language Constructs
 
@@ -13,6 +13,7 @@ Try it out at the [github page](https://jmnuf.github.com/qleei-lang/web/)
 
 In QLeei as of now there are only 2 types:
 - number:   Represented as a 64 bit floating point number
+- bool:     Whatever is the bool type in "stdbool.h" which we copy pasted from the header in my machine
 - pointer:  Some address to the heap
 
 Inputs towards called procedures will be type checked at runtime! Outputs don't get type checked as of now.
@@ -26,6 +27,8 @@ Syntax used to list the intrinsics follows this format: `<name> :: [<inputs>] ->
 Printing:
 - print_number :: [number]  -> []
   - Consumes a number and prints it to stdout with a newline
+- print_ptr    :: [pointer]  -> []
+  - Consumes a pointer and prints it to stdout with a newline
 - print_char   :: [number]  -> []
   - Consumes a number, casts it to an C char (8 bit integer) and prints it to stdout with a newline
 - print_zstr   :: [pointer] -> []
@@ -35,27 +38,41 @@ Printing:
 
 General Stack Operations:
 - dup          :: [a] -> [a, a]
-  - Duplicates the element at the top of the stack
-- drop          :: [a] -> []
-  - Drops the first element of the stack
+  - Duplicates the element at the top of the stack.
+- drop         :: [a] -> []
+  - Drops the first element of the stack.
 - rot2         :: [a, b] -> [b, a]
-  - Swaps the top and second to top elements of the stack
+  - Swaps the top and second to top elements of the stack. It also has the alias of `swap2` if you prefer that name.
 - rot3         :: [a, b, c] -> [b, c, a]
-  - Rotates the top 3 elements of the stack, so the first (top) goes to third, second goes to first and third goes to second
+  - Rotates the top 3 elements of the stack, so the first (top) goes to third, second goes to first and third goes to second.
+- swap3        :: [a, b, c] -> [c, b, a]
+  - Swaps the 1st element with the 3rd element of the stack. It's the same as doing `rot3 rot2`
+- over         :: [a, b] -> [b, a, b]
+  - Duplicates the 2nd element of the stack at the top of the stack. It's the same as doing `rot2 dup rot3`
 
 Memory Management:
-- mem_alloc   :: [number] -> [pointer]
+- mem_alloc          :: [number] -> [pointer]
   - Consumes a number which is casted to an unsigned integer used for saying how many bytes to allocate. Program crashes if allocation fails.
-- mem_free    :: [pointer] -> []
+- mem_free           :: [pointer] -> []
   - Consumes a pointer and frees the memory related to this pointer.
-- mem\_load\_ui8    :: [pointer] -> [number]
+- mem\_load\_ui8     :: [pointer] -> [number]
   - Consumes a pointer to read its value as an unsigned integer of 8 bits
-- mem\_save\_ui8    :: [pointer, number] -> []
+- mem\_save\_ui8     :: [pointer, number] -> []
   - Consumes a pointer to write to it the value as an unsigned integer of 8 bits
 - mem\_load\_ui32    :: [pointer] -> [number]
   - Consumes a pointer to read its value as an unsigned integer of 32 bits
 - mem\_save\_ui32    :: [pointer, number] -> []
   - Consumes a pointer to write to it the value as an unsigned integer of 32 bits
+
+## Loops
+
+QLeei only supports while loops and if you don't know how while loops work I think you are in the wrong place.
+The syntax is the following:
+```qleei
+while <condition> begin
+    <body>
+end
+```
 
 ## User Procedures
 
@@ -97,14 +114,12 @@ end
 proc alloc_u32_array [number] -> [pointer]
     dup 32 * mem_alloc
 	rot2 1 -
-	// We actually don't have loops yet so this is just a theoretical syntax that doesn't work KEKW
 	while dup 0 < begin // Zero out array
 		dup rot3 dup rot3 rot2
 		32 * + 0
 		rot2 mem_save_ui32
 		rot2 1 -
-	end
-	drop
+	end drop
 end
 ```
 
