@@ -6,6 +6,35 @@
 
 #define streq(a, b) (strcmp(a, b) == 0)
 
+typedef struct {
+  const char *key;
+  bool ok;
+} Map_Result_Item;
+
+typedef struct {
+  Map_Result_Item *items;
+  size_t count;
+  size_t capacity;
+} Map;
+
+Map_Result_Item *Map_find_key(Map *m, const char *key) {
+  if (m->count == 0) return NULL;
+  da_foreach(Map_Result_Item, pair, m) {
+    if (streq(pair->key, key)) return pair;
+  }
+  return NULL;
+}
+
+void Map_set_key(Map *m, const char *key, bool ok) {
+  Map_Result_Item *existing = Map_find_key(m, key);
+  if (existing) {
+    existing->ok = ok;
+    return;
+  }
+  Map_Result_Item pair = { .key = key, .ok = ok };
+  da_append(m, pair);
+}
+
 typedef enum {
   UNIT_FLAG_FORCE_BUILD = 1 << 0,
   UNIT_FLAG_DEBUG_INFO  = 1 << 1,
@@ -131,6 +160,7 @@ int main(int argc, char **argv) {
   bool run_requested = false;
   bool build_demanded = false;
   bool uses_etags = false;
+  bool run_all = false;
   const char *run_input_file = NULL;
 
   while (argc > 0) {
@@ -141,6 +171,9 @@ int main(int argc, char **argv) {
         String_View sv = sv_from_cstr(*argv);
         if (sv_end_with(sv, ".ql")) {
           run_input_file = shift(argv, argc);
+        } else if (sv_eq(sv, sv_from_cstr("all"))) {
+          shift(argv, argc);
+          run_all = true;
         }
       }
       continue;
@@ -207,9 +240,39 @@ int main(int argc, char **argv) {
   }
 
   if (run_requested) {
-    cmd_append(&cmd, native_output);
-    if (run_input_file) cmd_append(&cmd, run_input_file);
-    if (!cmd_run(&cmd)) return 1;
+    if (run_all) {
+      Map m = {0};
+      File_Paths paths = {0};
+      if (!read_entire_dir("./examples/", &paths)) return 1;
+
+      da_foreach(const char *, it, &paths) within_temp {
+        const char *file_path = *it;
+        if (streq(file_path, ".") || streq(file_path, "..")) continue;
+        cmd_append(&cmd, native_output);
+        cmd_append(&cmd, nob_temp_sprintf("./examples/%s", file_path));
+        bool ok = cmd_run(&cmd);
+        Map_set_key(&m, file_path, ok);
+      }
+
+      printf("\n==================================================\n");
+      printf("Results:\n");
+      bool ok = true;
+      da_foreach(Map_Result_Item, pair, &m) {
+        printf("%18s: ", pair->key);
+        if (pair->ok) {
+          printf("✅\n");
+        } else {
+          ok = false;
+          printf("❎\n");
+        }
+      }
+      printf("==================================================\n");
+      if (!ok) return 1;
+    } else {
+      cmd_append(&cmd, native_output);
+      if (run_input_file) cmd_append(&cmd, run_input_file);
+      if (!cmd_run(&cmd)) return 1;
+    }
   }
 
   return 0;
