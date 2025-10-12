@@ -42,12 +42,14 @@ typedef struct {
 #define unit_target_browser(u)       (u)->target = UNIT_TARGET_BROWSER;
 #define unit_target_desktop(u)       (u)->target = UNIT_TARGET_DESKTOP;
 
-#define within_temp for (ssize_t ___save_space = (ssize_t)nob_temp_save(); ___save_space != -1; (nob_temp_rewind((size_t)___save_space), ___save_space = -1))
+#define within_temp \
+for (ssize_t ___save_space = (ssize_t)nob_temp_save(); ___save_space != -1; (nob_temp_rewind((size_t)___save_space), ___save_space = -1))
 
 void usage(const char *program) {
   printf("Usage: %s [run|build]\n", program);
   printf("    run [(input).ql]      ---        Execute interpreter after compiling with an input file\n");
   printf("    build                 ---        Force building of program\n");
+  printf("    -etags                ---        Run etags on the C codebase\n");
 }
 
 bool build_unit(Cmd *cmd, Unit *u) {
@@ -59,7 +61,7 @@ bool build_unit(Cmd *cmd, Unit *u) {
       cmd_append(cmd, "--target=wasm32", "-nostdlib", "-Wl,--allow-undefined", "-Wl,--no-entry");
       cmd_append(cmd, "-Wl,--export=__heap_base", "-Wl,--export=__heap_end", "-Wl,--export=__indirect_function_table");
       for (size_t i = 0; i < u->wasm_exports.count; ++i) {
-	cmd_append(cmd, u->wasm_exports.items[i]);
+	      cmd_append(cmd, u->wasm_exports.items[i]);
       }
     } else {
       cmd_append(cmd, "-DPLATFORM_DESKTOP");
@@ -73,7 +75,7 @@ bool build_unit(Cmd *cmd, Unit *u) {
     da_foreach(const char *, input_path, u) {
       String_View sv = sv_from_cstr(*input_path);
       if (sv_end_with(sv, ".h")) {
-	continue;
+	      continue;
       }
       cmd_append(cmd, *input_path);
     }
@@ -81,9 +83,41 @@ bool build_unit(Cmd *cmd, Unit *u) {
     result = cmd_run(cmd);
   }
 
-  nob_log(INFO, "Unit %s is updated", u->output_path);
+  if (result) nob_log(INFO, "Unit %s is up to date", u->output_path);
+  else        nob_log(ERROR, "Unit %s failed to be updated", u->output_path);
 
   unit_clear(u);
+  return result;
+}
+
+
+bool build_etags(Cmd *cmd) {
+  File_Paths children = {0};
+  if (!read_entire_dir(".", &children)) return false;
+
+  const char *output_path = "TAGS";
+
+  for (ssize_t i = children.count-1; i >= 0; --i) {
+    const char *file_path = children.items[i];
+    String_View sv = sv_from_cstr(file_path);
+    if (sv_end_with(sv, ".c") || sv_end_with(sv, ".h")) continue;
+    da_remove_unordered(&children, i);
+  }
+
+  bool result = true;
+  if (needs_rebuild(output_path, children.items, children.count)) {
+    cmd_append(cmd, "etags", "-o", output_path);
+
+    for (size_t i = 0; i < children.count; ++i) {
+      cmd_append(cmd, children.items[i]);
+    }
+
+    result = cmd_run(cmd);
+  }
+  if (result) nob_log(INFO, "Tags are up to date");
+  else        nob_log(ERROR, "Tags failed to be updated");
+
+  if (children.items) free(children.items);
   return result;
 }
 
@@ -92,9 +126,13 @@ int main(int argc, char **argv) {
   NOB_GO_REBUILD_URSELF(argc, argv);
 
   const char *program_name = shift(argv, argc);
+  Cmd cmd = {0};
+
   bool run_requested = false;
   bool build_demanded = false;
+  bool uses_etags = false;
   const char *run_input_file = NULL;
+
   while (argc > 0) {
     const char *arg = shift(argv, argc);
     if (streq(arg, "run")) {
@@ -107,8 +145,14 @@ int main(int argc, char **argv) {
       }
       continue;
     }
+
     if (streq(arg, "build")) {
       build_demanded = true;
+      continue;
+    }
+
+    if (streq(arg, "-etags")) {
+      uses_etags = true;
       continue;
     }
     
@@ -117,11 +161,12 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  Cmd cmd = {0};
   Unit unit = {0};
   if (!mkdir_if_not_exists(BUILD_FOLDER)) return 1;
 
   const char *native_output = BUILD_FOLDER"/qleei";
+
+  build_etags(&cmd);
 
   within_temp {
     unit_target_desktop(&unit);
@@ -150,12 +195,12 @@ int main(int argc, char **argv) {
     if (build_demanded) unit_force_build(&unit);
     if (!build_unit(&cmd, &unit)) return 1;
 
-    if (needs_rebuild1("./web/qleei.wasm", output_path)) {
+    if (needs_rebuild1("./playground/qleei.wasm", output_path)) {
       String_Builder sb = {0};
       if (read_entire_file(output_path, &sb)) {
-	if (write_entire_file("./web/qleei.wasm", sb.items, sb.count)) {
-	  nob_log(INFO, "Updated ./web/qleei.wasm");
-	}
+	      if (write_entire_file("./playground/qleei.wasm", sb.items, sb.count)) {
+	        nob_log(INFO, "Updated ./playground/qleei.wasm");
+	      }
       }
       sb_free(sb);
     }
@@ -163,9 +208,7 @@ int main(int argc, char **argv) {
 
   if (run_requested) {
     cmd_append(&cmd, native_output);
-    if (run_input_file) {
-      cmd_append(&cmd, run_input_file);
-    }
+    if (run_input_file) cmd_append(&cmd, run_input_file);
     if (!cmd_run(&cmd)) return 1;
   }
 

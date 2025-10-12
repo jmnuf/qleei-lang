@@ -1,4 +1,8 @@
 build/
+
 nob*
 *.exe
 *.o[bj]
+
+TAGS
+
