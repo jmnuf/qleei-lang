@@ -341,7 +341,7 @@ bool stack_operation_requires_n_items(Lex_Location loc, Stack *s, String_View sv
 
 bool action_expects_value_kind(String_View sv, Value_Kind got, Value_Kind exp) {
   if (got == exp) return true;
-  platform_printfn("[ERROR] Invalid type passed to "SV_Fmt_Str" expected pointer", SV_Fmt_Arg(sv));
+  platform_printfn("[TYPE_ERROR] Invalid type passed to "SV_Fmt_Str" expected pointer", SV_Fmt_Arg(sv));
   return false;
 }
 
