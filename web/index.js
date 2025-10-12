@@ -25,9 +25,6 @@ class List extends Array {
   }
 }
 
-Array.prototype.last = function() {
-};
-
 const appDiv = document.querySelector('#app');
 
 function setup_loading_screen() {
@@ -52,7 +49,7 @@ function setup_input_screen(div, interpreter) {
         <label for="code-area">Source:</label>
         <button id="submit-btn" type="submit">Interpret</button>
     </div>
-    <textarea id="code-area" cols="50" rows="25"></textarea>
+    <textarea id="code-area" spellcheck="false" cols="50" rows="25"></textarea>
 </form>
 <section id="log" class="px-2 flex flex-col text-align-left">
     <h2 class="pt-4">Logs</h2>
@@ -71,23 +68,25 @@ function setup_input_screen(div, interpreter) {
     interpreter
       .exec(code)
       .then((result) => {
-	if (result) {
-	  logs.push('[SYSTEM] OK');
-	} else {
-	  logs.push('[SYSTEM] FAILED');
-	}
-	render_logs();
+	      if (result) {
+	        logs.push('[SYSTEM] OK');
+	      } else {
+	        logs.push('[SYSTEM] FAILED: WASM returned failure');
+	      }
+	      render_logs();
       })
-      // .then((result) => {
-      // 	if (result.ok) {
-      // 	  logs.push('[SYSTEM] OK');
-      // 	} else if (result.error == 'failed') {
-      // 	  logs.push('[SYSTEM] FAILED');
-      // 	} else if (result.error == 'aborted') {
-      // 	  return;
-      // 	}
-      // 	render_logs();
-      // });
+      .catch((error) => {
+        let sb = '';
+        if (error instanceof TypeError) {
+          sb += '[SYSTEM.TypeError] ' + error.message;
+        } else if (error instanceof Error) {
+          sb += '[SYSTEM.Error] ' + error.message;
+        } else {
+          sb += '[SYSTEM.UnknownError]: ' + String(error);
+        }
+        logs.push(sb);
+        logs.push('[SYSTEM] FAILED: JS Crashed');
+      });
   }, 0);
 
   textarea.value = start_code;

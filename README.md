@@ -31,7 +31,7 @@ Printing:
 - print_zstr   :: [pointer] -> []
   - Consumes a pointer expecting it to be a null terminated string and prints it to stdout with a newline
 - print_stack  :: [] -> []
-  - Prints the current stack to stdout with top of it being the rightmost value, can be used for debugging a program
+  - Prints the current stack to stdout read as top to bottom from left to right, can be used for debugging a program
 
 General Stack Operations:
 - dup          :: [a] -> [a, a]
