@@ -282,6 +282,7 @@ bool lexer_next(Lexer *lexer) {
         loc_printfn(loc, "[LexError] ASCII char literal does not end with ' or takes more than 1 byte");
         return false;
       }
+      lexer->column++;
       return true;
     }
     
