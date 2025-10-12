@@ -203,7 +203,7 @@ bool lexer_next(Lexer *lexer) {
     }
 
     // Ignore any unmanaged ASCII control character
-    if (c < 31) {
+    if (c < 32) {
       platform_printfn("[WARN] Unexpected control character found in input: %d", (int)c);
       continue;
     }
@@ -220,9 +220,15 @@ bool lexer_next(Lexer *lexer) {
       while (is_number_char(c)) {
 	      lexer->column++;
 	      token->string.len++;
+        if (lexer->index >= lexer->buffer_len) break;
+
 	      c = lexer->buffer[lexer->index++];
 	      if (c == '.' && !decimal) {
 	        decimal = true;
+          if (lexer->index >= lexer->buffer_len) {
+            decimal = false;
+            break;
+          }
 	        c = lexer->buffer[lexer->index++];
 	      }
       }
@@ -238,6 +244,7 @@ bool lexer_next(Lexer *lexer) {
       token->string.len = 0;
       while (is_identifier_char(c)) {
 	      token->string.len++;
+        if (lexer->index >= lexer->buffer_len) break;
 	      c = lexer->buffer[lexer->index++];
 	      lexer->column++;
       }
