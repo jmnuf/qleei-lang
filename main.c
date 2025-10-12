@@ -270,6 +270,10 @@ bool lexer_next(Lexer *lexer) {
 
       c = lexer->buffer[lexer->index++];
       token->number = (double)c;
+      if (lexer->index >= lexer->buffer_len) {
+        loc_printfn(loc, "[LexError] Unterminated ASCII char literal");
+        return false;
+      }
 
       loc.column++;
       lexer->column++;
