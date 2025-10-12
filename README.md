@@ -11,7 +11,7 @@ Try it out at the [online playground](https://jmnuf.github.io/qleei-lang/playgro
 
 ### Types
 
-In QLeei as of now there are only 2 types:
+In QLeei as of now there are 3 types:
 - number:   Represented as a 64 bit floating point number
 - bool:     Whatever is the bool type in "stdbool.h" which we copy pasted from the header in my machine
 - pointer:  Some address to the heap
