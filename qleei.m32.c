@@ -5,10 +5,27 @@
 #define PLATFORM_DESKTOP
 #include "qleei.h"
 
+/**
+ * Print the program usage message to the specified stream.
+ *
+ * Writes "Usage: <program> <input-file>\n" to the provided FILE stream,
+ * substituting the given program name.
+ *
+ * @param f Output stream to receive the usage message.
+ * @param program Program name to display in the usage message.
+ */
 void usage(FILE *f, const char *program) {
   fprintf(f, "Usage: %s <input-file>\n", program);
 }
 
+/**
+ * Program entry point that reads a source file and invokes the QLEEI interpreter on its contents.
+ *
+ * Handles "-h" and "--help" by printing usage and exiting successfully. If no input path is provided,
+ * prints usage to stderr and exits with an error.
+ *
+ * @returns 0 on successful interpretation; 1 on error (missing input, file read failure, or interpreter failure).
+ */
 int main(int argc, char **argv) {
   const char *program = nob_shift(argv, argc);
 
@@ -33,4 +50,3 @@ int main(int argc, char **argv) {
 
   return 0;
 }
-

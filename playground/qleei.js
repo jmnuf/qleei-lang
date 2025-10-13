@@ -622,6 +622,17 @@ const env = {
 
 const wait_frame = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/**
+ * Load and initialize the WebAssembly-backed interpreter and return an API to execute code and configure output.
+ *
+ * @returns {{ exec: function(string): boolean, set_output: function(object|null): void }} An object with:
+ *  - `exec(code)`: executes the provided source code in the interpreter and returns `true` on success, `false` otherwise.
+ *  - `set_output(target)`: sets the output target to an object with a `write` function or `null` to disable redirection.
+ *
+ * @throws {Error} If allocation of the interpreter code buffer fails.
+ * @throws {Error} If a code string exceeds the transfer buffer capacity.
+ * @throws {TypeError} If `set_output` is called with a non-object or an object lacking a `write` function.
+ */
 export async function load_interpreter() {
   const wasm = await WebAssembly.instantiateStreaming(fetch("./qleei.wasm"), { env });
 
@@ -707,4 +718,3 @@ export async function load_interpreter() {
     },
   };
 }
-

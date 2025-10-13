@@ -39,6 +39,14 @@ function setup_loading_screen() {
   return appDiv.querySelector('div');
 }
 
+/**
+ * Render a code editor and log panel into the given container, wire form controls and logging, persist code to localStorage, and connect the provided interpreter for execution and output handling.
+ *
+ * Sets up the UI (textarea, submit button, Logs section), initializes the textarea from localStorage (key "qleei:code") or example_code, and stores updates back to localStorage. Submits run the interpreter via its exec(code) method and append status or error messages to the log. Also configures interpreter.set_output({ write }) to append streamed output into the log buffer and re-render the log view. Finally, runs the initial code once on setup.
+ *
+ * @param {HTMLElement} div - Container element where the editor and logs are mounted.
+ * @param {{ exec: (code: string) => Promise<any>, set_output: (sink: { write: (chunk: string) => void }) => void }} interpreter - Interpreter instance providing `exec(code)` to run code and `set_output` accepting a sink with a `write(content)` method to receive output chunks.
+ */
 function setup_input_screen(div, interpreter) {
   const start_code = localStorage.getItem('qleei:code') ?? example_code;
 
@@ -132,6 +140,13 @@ function setup_input_screen(div, interpreter) {
   run_code(start_code);
 }
 
+/**
+ * Initialize the app UI, load the interpreter, and transition to the input screen.
+ *
+ * Shows a loading screen, attempts to load the interpreter, and on success calls
+ * setup_input_screen with the loading container and the interpreter. If loading
+ * fails, replaces the loading content with `Failed: <error message>`.
+ */
 async function main() {
   const div = setup_loading_screen();
   try {
@@ -143,4 +158,3 @@ async function main() {
 }
 
 main();
-
