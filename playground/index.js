@@ -86,6 +86,7 @@ function setup_input_screen(div, interpreter) {
         }
         logs.push(sb);
         logs.push('[SYSTEM] FAILED: JS Crashed');
+        render_logs();
       });
   }, 0);
 
@@ -113,15 +114,15 @@ function setup_input_screen(div, interpreter) {
   interpreter.set_output({
     write(content) {
       if (content === '\n') {
-	render_logs();
-	logs.push('');
-	return;
+	      render_logs();
+	      logs.push('');
+	      return;
       }
       if (!content.includes('\n')) {
-	if (logs.length > 0) logs[logs.last_index] = logs[logs.last_index] + content;
-	else logs.push(content);
-	render_logs();
-	return;
+	      if (logs.length > 0) logs[logs.last_index] = logs[logs.last_index] + content;
+	      else logs.push(content);
+	      render_logs();
+	      return;
       }
       logs.push(...content.split('\n'));
       render_logs();
@@ -133,8 +134,12 @@ function setup_input_screen(div, interpreter) {
 
 async function main() {
   const div = setup_loading_screen();
-  const interpreter = await load_interpreter();
-  setup_input_screen(div, interpreter);
+  try {
+    const interpreter = await load_interpreter();
+    setup_input_screen(div, interpreter);
+  } catch (e) {
+    div.innerText = `Failed: ${e instanceof Error ? e.message : e}`;
+  }
 }
 
 main();

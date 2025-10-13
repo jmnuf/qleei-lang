@@ -1,16 +1,17 @@
+// @ts-check
 
-function create_env(obj) {
-  return new Proxy(obj, {
-    get(target, property) {
-      if (property in target) return target[property];
-      return (...args) => {
-	const args_str = args.join(', ');
-	console.error(`UnimplementedException: ${property}(${args_str})`);
-	return 0;
-      };
-    }
-  });
-}
+// function create_env(obj) {
+//   return new Proxy(obj, {
+//     get(target, property) {
+//       if (property in target) return target[property];
+//       return (...args) => {
+// 	const args_str = args.join(', ');
+// 	console.error(`UnimplementedException: ${property}(${args_str})`);
+// 	return 0;
+//       };
+//     }
+//   });
+// }
 
 class MemoryView extends DataView {
   offset = 0;
@@ -25,7 +26,7 @@ class MemoryView extends DataView {
     if (typeof value != 'boolean') {
       throw new TypeError('Expected boolean');
     }
-    this.setUint8(0, value);
+    this.setUint8(0, value ? 1 : 0);
   };
 
   shift_uint8  = () => {
@@ -70,8 +71,8 @@ class MemoryView extends DataView {
     this.offset += 4;
     return n;
   };
-  get_flt32    = () => this.getFlt32(0, true);
-  set_flt32    = (value) => this.setFlt32(0, value, true);
+  get_flt32    = () => this.getFloat32(0, true);
+  set_flt32    = (value) => this.setFloat32(0, value, true);
 
   shift_flt64  = () => {
     this.offset = mem.align_up(this.offset, 8);
@@ -479,8 +480,8 @@ const Proc_Shape = (name) => [name, [
   List_Shape("outputs"), // List<Value_Kind>
 ]];
 
-const env = create_env({
-  web_parse_number(buf_ptr, buf_sz) {
+const env = {
+  qleei_wasm_parse_number(buf_ptr, buf_sz) {
     if (buf_ptr == 0) {
       throw new Error('Invalid pointer used for float parse request');
     }
@@ -488,19 +489,19 @@ const env = create_env({
     return parseFloat(str);
   },
 
-  web_malloc(sz) {
+  qleei_wasm_malloc(sz) {
     return mem.alloc(sz);
   },
 
-  web_mfree(ptr) {
+  qleei_wasm_mfree(ptr) {
     mem.free(ptr);
   },
 
-  web_mrealloc(ptr, sz) {
+  qleei_wasm_mrealloc(ptr, sz) {
     return mem.realloc(ptr, sz);
   },
 
-  web_printf(pFmt, pVargs) {
+  qleei_wasm_printf(pFmt, pVargs) {
     const view = mem.create_view(pVargs);
 
     const fmt = mem.read_zstr(pFmt).str;
@@ -544,6 +545,28 @@ const env = create_env({
 	      const { str } = mem.read_zstr(data_ptr);
 	      print(str);
 	      continue;
+      }
+
+      if (ss.startsWith('%.s')) { // In case u need that 0 precision KEKW
+        i += 2;
+        view.shift_ptr();
+        continue;
+      }
+
+      if (ss.match(/^\%(\d+)s/)) { // Fixed precision string
+        i++;
+        const precision_str = ss.matches(/^\%(\d+)s/)[1];
+        const precision = +precision_str;
+        const zstr = mem.read_zstr(view.shift_ptr());
+        let message = zstr.str;
+        if (zstr.buffer.length < precision) {
+          let buf = [...zstr.buffer];
+          while (buf.length < precision) buf.unshift(32);
+          message = Utf8.decode(buf);
+        }
+        i += precision_str.length;
+        print(message);
+        continue;
       }
 
       if (ss.startsWith('%c')) {
@@ -591,11 +614,11 @@ const env = create_env({
     }
   },
 
-  web_printfn(pFmt, pVargs) {
-    env.web_printf(pFmt, pVargs);
+  qleei_wasm_printfn(pFmt, pVargs) {
+    env.qleei_wasm_printf(pFmt, pVargs);
     print('\n');
   },
-});
+};
 
 const wait_frame = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -603,7 +626,6 @@ export async function load_interpreter() {
   const wasm = await WebAssembly.instantiateStreaming(fetch("./qleei.wasm"), { env });
 
   const exports = wasm.instance.exports;
-  console.log('Instance.exports:', exports);
   Object.defineProperties(mem, {
     memory: {
       get() { return exports.memory; },
@@ -619,7 +641,7 @@ export async function load_interpreter() {
     },
   });
   mem.index = mem.heap_base;
-  console.log('Memory Manager:', mem);
+  console.log('[INFO] Simple memory manager setup');
   // window.mem = mem;
 
   const CODE_BUF_CAP = mem.align_up(1024*8);
@@ -630,9 +652,14 @@ export async function load_interpreter() {
 
   const input_path_ptr = mem.alloc_js_str_as_zstr('input.ql');
 
-  const mod = {
-    interpret_buffer: (buf_ptr, buf_sz) => exports.interpret_buffer(input_path_ptr, buf_ptr, buf_sz) == 1,
-  };
+  const mod = {};
+  for (const k of Object.keys(exports)) {
+    if (k == 'memory') continue;
+    if (k.startsWith('__')) continue;
+    console.log('[INFO] Loaded wasm function:', k, exports[k]);
+    mod[k] = exports[k];
+  }
+  mod.interpret_buffer = (buf_ptr, buf_len) => mod.qleei_interpret_buffer(input_path_ptr, buf_ptr, buf_len) == 1;
 
   const save_point = {
     index: mem.index,

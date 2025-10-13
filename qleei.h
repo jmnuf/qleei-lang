@@ -73,9 +73,6 @@ void  qleei_mem_free    (void *ptr);
 void *qleei_mem_copy    (void *dest, const void *src, qleei_uisz_t count);
 
 
-void qleei_printf(const char *fmt, ...);
-void qleei_printfn(const char *fmt, ...);
-
 static inline bool qleei_is_space_char(char c);
 static inline bool qleei_is_number_char(char c);
 static inline bool qleei_is_alphabetic_char(char c);
@@ -232,6 +229,9 @@ extern void   qleei_wasm_mfree(void *ptr);
 extern void*  qleei_wasm_malloc(qleei_uisz_t bytes_count);
 extern void*  qleei_wasm_mrealloc(void *base_ptr, qleei_uisz_t bytes_count);
 
+#define qleei_printf  qleei_wasm_printf
+#define qleei_printfn qleei_wasm_printfn
+
 #endif // PLATFORM_BROWSER
 
 
@@ -241,10 +241,8 @@ extern void*  qleei_wasm_mrealloc(void *base_ptr, qleei_uisz_t bytes_count);
 #include <string.h>
 #include <float.h>
 
-
-#define qleei_printf printf
+void qleei_printf(const char *fmt, ...);
 void qleei_printfn(const char *fmt, ...);
-const char *qleei_temp_sprintf(char *fmt, ...);
 
 #endif // PLATFORM_DESKTOP
 
@@ -1414,6 +1412,13 @@ bool qleei_interpret_buffer(const char *buffer_source_path, const char *buffer, 
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+
+void qleei_printf(const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  vprintf(fmt, ap);
+  va_end(ap);
+}
 
 void qleei_printfn(const char *fmt, ...) {
   va_list ap;
