@@ -171,8 +171,8 @@ int main(int argc, char **argv) {
   within_temp {
     unit_target_desktop(&unit);
     unit_output(&unit, native_output);
-    unit_input(&unit, "./main.c");
-    unit_input(&unit, "./platform.h");
+    unit_input(&unit, "./qleei.c");
+    unit_input(&unit, "./qleei.h");
     if (build_demanded) unit_force_build(&unit);
     unit_debug_info(&unit);
 
@@ -183,8 +183,8 @@ int main(int argc, char **argv) {
     unit_target_browser(&unit);
     const char *output_path = BUILD_FOLDER"/qleei.wasm";
     unit_output(&unit, output_path);
-    unit_input(&unit, "./main.c");
-    unit_input(&unit, "./platform.h");
+    unit_input(&unit, "./qleei.c");
+    unit_input(&unit, "./qleei.h");
 
     unit_wasm_export(&unit, "get_token_kind_name");
     // Export interpreter functions
