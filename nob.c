@@ -86,14 +86,12 @@ bool build_unit(Cmd *cmd, Unit *u) {
   if (u->flags & UNIT_FLAG_FORCE_BUILD || needs_rebuild(u->output_path, u->items, u->count)) {
     cmd_append(cmd, "clang");
     if (u->target == UNIT_TARGET_BROWSER) {
-      cmd_append(cmd, "-DPLATFORM_BROWSER");
       cmd_append(cmd, "--target=wasm32", "-nostdlib", "-Wl,--allow-undefined", "-Wl,--no-entry");
       cmd_append(cmd, "-Wl,--export=__heap_base", "-Wl,--export=__heap_end", "-Wl,--export=__indirect_function_table");
       for (size_t i = 0; i < u->wasm_exports.count; ++i) {
 	      cmd_append(cmd, u->wasm_exports.items[i]);
       }
     } else {
-      cmd_append(cmd, "-DPLATFORM_DESKTOP");
       cmd_append(cmd, "-m32");
     }
     cmd_append(cmd, "-Wall", "-Wextra");
@@ -101,6 +99,7 @@ bool build_unit(Cmd *cmd, Unit *u) {
     if (u->flags & UNIT_FLAG_DEBUG_INFO) cmd_append(cmd, "-ggdb");
 
     nob_cc_output(cmd, u->output_path);
+    size_t count = cmd->count;
     da_foreach(const char *, input_path, u) {
       String_View sv = sv_from_cstr(*input_path);
       if (sv_end_with(sv, ".h")) {
@@ -108,6 +107,7 @@ bool build_unit(Cmd *cmd, Unit *u) {
       }
       cmd_append(cmd, *input_path);
     }
+    if (count == cmd->count && u->count > 0) cmd_append(cmd, u->items[0]);
 
     result = cmd_run(cmd);
   }
@@ -204,7 +204,7 @@ int main(int argc, char **argv) {
   within_temp {
     unit_target_desktop(&unit);
     unit_output(&unit, native_output);
-    unit_input(&unit, "./qleei.c");
+    unit_input(&unit, "./qleei.m32.c");
     unit_input(&unit, "./qleei.h");
     if (build_demanded) unit_force_build(&unit);
     unit_debug_info(&unit);
@@ -216,15 +216,15 @@ int main(int argc, char **argv) {
     unit_target_browser(&unit);
     const char *output_path = BUILD_FOLDER"/qleei.wasm";
     unit_output(&unit, output_path);
-    unit_input(&unit, "./qleei.c");
+    unit_input(&unit, "./qleei.wasm.c");
     unit_input(&unit, "./qleei.h");
 
-    unit_wasm_export(&unit, "get_token_kind_name");
+    unit_wasm_export(&unit, "qleei_get_token_kind_name");
     // Export interpreter functions
-    unit_wasm_export(&unit, "interpret_buffer");
-    unit_wasm_export(&unit, "alloc_new_interpreter");
-    unit_wasm_export(&unit, "interpreter_step");
-    unit_wasm_export(&unit, "interpreter_lexer_init");
+    unit_wasm_export(&unit, "qleei_interpret_buffer");
+    unit_wasm_export(&unit, "qleei_alloc_new_interpreter");
+    unit_wasm_export(&unit, "qleei_interpreter_step");
+    unit_wasm_export(&unit, "qleei_interpreter_lexer_init");
     if (build_demanded) unit_force_build(&unit);
     if (!build_unit(&cmd, &unit)) return 1;
 
@@ -243,28 +243,30 @@ int main(int argc, char **argv) {
     if (run_all) {
       Map m = {0};
       File_Paths paths = {0};
-      if (!read_entire_dir("./examples/", &paths)) return 1;
+      const char *folder_path = "./examples";
+      if (!read_entire_dir(folder_path, &paths)) return 1;
 
       da_foreach(const char *, it, &paths) within_temp {
         const char *file_path = *it;
         if (streq(file_path, ".") || streq(file_path, "..")) continue;
         cmd_append(&cmd, native_output);
-        cmd_append(&cmd, nob_temp_sprintf("./examples/%s", file_path));
+        cmd_append(&cmd, nob_temp_sprintf("%s/%s", folder_path, file_path));
         bool ok = cmd_run(&cmd);
         Map_set_key(&m, file_path, ok);
       }
 
       printf("\n==================================================\n");
-      printf("Results:\n");
+      printf("| Results:\n");
       bool ok = true;
       da_foreach(Map_Result_Item, pair, &m) {
-        printf("%18s: ", pair->key);
+        printf("|    ");
         if (pair->ok) {
-          printf("✅\n");
+          printf("✅");
         } else {
           ok = false;
-          printf("❎\n");
+          printf("❎");
         }
+        printf(" - %s\n", pair->key);
       }
       printf("==================================================\n");
       if (!ok) return 1;
