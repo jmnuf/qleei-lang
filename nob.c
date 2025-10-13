@@ -256,6 +256,7 @@ int main(int argc, char **argv) {
       da_foreach(const char *, it, &paths) within_temp {
         const char *file_path = *it;
         if (streq(file_path, ".") || streq(file_path, "..")) continue;
+        if (!sv_end_with(sv_from_cstr(file_path), ".ql")) continue;
         cmd_append(&cmd, native_output);
         cmd_append(&cmd, nob_temp_sprintf("%s/%s", folder_path, file_path));
         bool ok = cmd_run(&cmd);

@@ -247,7 +247,7 @@ void qleei_printfn(const char *fmt, ...);
 #endif // PLATFORM_DESKTOP
 
 
-#endif // _PLATFORM_H
+#endif // _QLEEI_H
 
 #ifdef QLEEI_IMPLEMENTATION
 
@@ -994,7 +994,7 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
 	      return false;
       }
       double n = item.as_number.value;
-      if (n > 255) {
+      if (0 > n || n > 255) {
 	      qleei_printfn("[ERROR] Attempting to read a number as a char that exceeds the char limit of 255: %zu", (qleei_uisz_t)n);
 	      return false;
       }

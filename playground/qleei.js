@@ -692,7 +692,7 @@ export async function load_interpreter() {
     exec: interpret_code,
     set_output: (target) => {
       if (typeof target !== 'object') {
-	      throw new TypeError('Output must be an object with writeln property or null');
+	      throw new TypeError('Output must be an object with write property or null');
       }
       if (target) {
 	      if (typeof target.write != 'function') {
