@@ -260,7 +260,7 @@ void qleei_printfn(const char *fmt, ...);
  */
 Qleei_String_View qleei_sv_from_zstr(const char *zstr) {
   Qleei_String_View sv = {0};
-  sv.data = (char*) zstr;
+  sv.data = zstr;
   if (zstr == NULL) return sv;
   while (sv.data[sv.len] != 0) sv.len++;
   return sv;
@@ -1063,7 +1063,7 @@ bool qleei_parse_proc(Qleei_Interpreter *it) {
     } else if (qleei_sv_eq_zstr(l->token.string, "bool")) {
       qleei_value_kind_list_append(&proc.inputs.items, &proc.inputs.cap, &proc.inputs.len, QLEEI_VALUE_KIND_BOOL);
     } else {
-      qleei_loc_printfn(l->token.loc, "[ERROR] Invalid type name only 'pointer', 'ptr', and 'number' types exist");
+      qleei_loc_printfn(l->token.loc, "[ERROR] Invalid type name only 'pointer'/'ptr', 'number', and 'bool' types exist");
       return false;
     }
 
@@ -1118,7 +1118,7 @@ bool qleei_parse_proc(Qleei_Interpreter *it) {
     } else if (qleei_sv_eq_zstr(l->token.string, "bool")) {
       qleei_value_kind_list_append(&proc.outputs.items, &proc.outputs.cap, &proc.outputs.len, QLEEI_VALUE_KIND_BOOL);
     } else {
-      qleei_loc_printfn(l->token.loc, "[ERROR] Invalid type name only 'pointer', 'ptr', and 'number' types exist");
+      qleei_loc_printfn(l->token.loc, "[ERROR] Invalid type name only 'pointer'/'ptr', 'number', and 'bool' types exist");
       return false;
     }
 
