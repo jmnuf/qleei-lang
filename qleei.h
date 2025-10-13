@@ -52,8 +52,6 @@ bool qleei_zstr_eq(const char *za, const char *zb);
 
 double qleei_parse_number(Qleei_String_View sv);
 
-
-
 bool  qleei_list_reserve(void **items, qleei_uisz_t item_size, qleei_uisz_t *current_capacity, qleei_uisz_t desired_capacity);
 bool  qleei_list_append(void **items, qleei_uisz_t item_size, qleei_uisz_t *capacity, qleei_uisz_t *length, void *item);
 void* qleei_list_last(void *items, qleei_uisz_t item_size, qleei_uisz_t length);
@@ -86,6 +84,141 @@ void *qleei_temp_alloc(qleei_uisz_t bytes_count);
 qleei_uisz_t   qleei_temp_save();
 void  qleei_temp_rewind(qleei_uisz_t save_point);
 
+void qleei_printf(const char *fmt, ...);
+void qleei_printfn(const char *fmt, ...);
+
+static inline bool qleei_is_space_char(char c);
+static inline bool qleei_is_number_char(char c);
+static inline bool qleei_is_alphabetic_char(char c);
+static inline bool qleei_is_identifier_start_char(char c);
+static inline bool qleei_is_identifier_char(char c);
+
+
+typedef struct {
+  const char *file_path;
+  qleei_uisz_t index;
+  qleei_uisz_t line;
+  qleei_uisz_t column;
+} QLeei_Lex_Location;
+
+#define qleei_loc_printfn(loc, ...) \
+do { qleei_printf("%s:%zu:%zu: ", (loc).file_path, (loc).line, (loc).column); qleei_printfn(__VA_ARGS__); } while (0)
+
+
+typedef enum {
+  QLEEI_TOKEN_KIND_NONE = 0,
+  QLEEI_TOKEN_KIND_EOF,
+  QLEEI_TOKEN_KIND_IDENTIFIER,
+  QLEEI_TOKEN_KIND_NUMBER,
+  QLEEI_TOKEN_KIND_BOOL,
+  QLEEI_TOKEN_KIND_SYMBOL,
+} Qleei_Token_Kind;
+
+typedef struct {
+  Qleei_Token_Kind kind;
+  QLeei_Lex_Location loc;
+
+  Qleei_String_View string;
+  double number;
+} QLeei_Token;
+
+const char *qleei_get_token_kind_name(Qleei_Token_Kind kind);
+
+
+typedef struct {
+  const char *input_path;
+  const char *buffer;
+  qleei_uisz_t buffer_len;
+
+  qleei_uisz_t index;
+  qleei_uisz_t line;
+  qleei_uisz_t column;
+
+  QLeei_Token token;
+} QLeei_Lexer;
+
+void qleei_lexer_init(QLeei_Lexer *l, const char *input_path, const char *buffer, qleei_uisz_t buf_size);
+bool qleei_lexer_next(QLeei_Lexer *lexer);
+bool qleei_lexer_peek(QLeei_Lexer *l, QLeei_Token *t);
+QLeei_Lex_Location qleei_lexer_save_point(QLeei_Lexer *l);
+bool qleei_lexer_restore_point(QLeei_Lexer *l, QLeei_Lex_Location save_point);
+
+
+typedef enum {
+  QLEEI_VALUE_KIND_NUMBER,
+  QLEEI_VALUE_KIND_POINTER,
+  QLEEI_VALUE_KIND_BOOL,
+} Qleei_Value_Kind;
+
+const char *qleei_get_value_kind_name(Qleei_Value_Kind kind);
+
+
+typedef union {
+  Qleei_Value_Kind kind;
+  
+  struct {
+    Qleei_Value_Kind kind;
+    double value;
+  } as_number;
+
+  struct {
+    Qleei_Value_Kind kind;
+    char *value;
+  } as_pointer;
+
+  struct {
+    Qleei_Value_Kind kind;
+    bool value;
+  } as_bool;
+} Qleei_Value_Item;
+
+bool qleei_value_kind_list_append(Qleei_Value_Kind **items, qleei_uisz_t *cap, qleei_uisz_t *len, Qleei_Value_Kind item);
+
+
+typedef struct {
+  Qleei_Value_Item *items;
+  qleei_uisz_t len;
+  qleei_uisz_t cap;
+} Qleei_Stack;
+
+bool qleei_stack_push(Qleei_Stack *stack, Qleei_Value_Item item);
+
+typedef struct {
+  QLeei_Lex_Location body_start;
+  QLeei_Lex_Location body_end;
+
+  Qleei_String_View name_sv;
+
+  struct {
+    Qleei_Value_Kind *items;
+    qleei_uisz_t len;
+    qleei_uisz_t cap;
+  } inputs;
+
+  struct {
+    Qleei_Value_Kind *items;
+    qleei_uisz_t len;
+    qleei_uisz_t cap;
+  } outputs;
+} Qleei_Proc;
+
+typedef struct {
+  Qleei_Proc *items;
+  qleei_uisz_t len;
+  qleei_uisz_t cap;
+} Qleei_Procs;
+
+Qleei_Proc *qleei_procs_find_by_sv_name(Qleei_Procs *haystack, Qleei_String_View needle);
+
+
+typedef struct {
+  QLeei_Lexer  lexer;
+  Qleei_Stack  stack;
+  Qleei_Procs  procs;
+  bool   done;
+} Qleei_Interpreter;
+
+
 
 #ifdef PLATFORM_BROWSER
 
@@ -97,8 +230,6 @@ extern void   qleei_wasm_mfree(void *ptr);
 extern void*  qleei_wasm_malloc(qleei_uisz_t bytes_count);
 extern void*  qleei_wasm_mrealloc(void *base_ptr, qleei_uisz_t bytes_count);
 
-#define qleei_printf  qleei_wasm_printf
-#define qleei_printfn qleei_wasm_printfn
 #define qleei_temp_sprintf(...) qleei_wasm_temp_sprintfn(__VA_ARGS__)
 
 #endif // PLATFORM_BROWSER

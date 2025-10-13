@@ -1,109 +1,13 @@
 #include "qleei.h"
 
-typedef struct {
-  const char *file_path;
-  qleei_uisz_t index;
-  qleei_uisz_t line;
-  qleei_uisz_t column;
-} QLeei_Lex_Location;
-
-#define qleei_loc_printfn(loc, ...) \
-do { qleei_printf("%s:%zu:%zu: ", (loc).file_path, (loc).line, (loc).column); qleei_printfn(__VA_ARGS__); } while (0)
-
-typedef enum {
-  QLEEI_TOKEN_KIND_NONE = 0,
-  QLEEI_TOKEN_KIND_EOF,
-  QLEEI_TOKEN_KIND_IDENTIFIER,
-  QLEEI_TOKEN_KIND_NUMBER,
-  QLEEI_TOKEN_KIND_BOOL,
-  QLEEI_TOKEN_KIND_SYMBOL,
-} Qleei_Token_Kind;
-
-typedef struct {
-  Qleei_Token_Kind kind;
-  QLeei_Lex_Location loc;
-
-  Qleei_String_View string;
-  double number;
-} QLeei_Token;
-
-typedef struct {
-  const char *input_path;
-  const char *buffer;
-  qleei_uisz_t buffer_len;
-
-  qleei_uisz_t index;
-  qleei_uisz_t line;
-  qleei_uisz_t column;
-
-  QLeei_Token token;
-} QLeei_Lexer;
-
-typedef enum {
-  QLEEI_VALUE_KIND_NUMBER,
-  QLEEI_VALUE_KIND_POINTER,
-  QLEEI_VALUE_KIND_BOOL,
-} Qleei_Value_Kind;
-
-typedef union {
-  Qleei_Value_Kind kind;
-  
-  struct {
-    Qleei_Value_Kind kind;
-    double value;
-  } as_number;
-
-  struct {
-    Qleei_Value_Kind kind;
-    char *value;
-  } as_pointer;
-
-  struct {
-    Qleei_Value_Kind kind;
-    bool value;
-  } as_bool;
-} Qleei_Value_Item;
 
 
-
-typedef struct {
-  Qleei_Value_Item *items;
-  qleei_uisz_t len;
-  qleei_uisz_t cap;
-} Qleei_Stack;
-
-
-
-typedef struct {
-  QLeei_Lex_Location body_start;
-  QLeei_Lex_Location body_end;
-
-  Qleei_String_View name_sv;
-
-  struct {
-    Qleei_Value_Kind *items;
-    qleei_uisz_t len;
-    qleei_uisz_t cap;
-  } inputs;
-
-  struct {
-    Qleei_Value_Kind *items;
-    qleei_uisz_t len;
-    qleei_uisz_t cap;
-  } outputs;
-} Qleei_Proc;
-
-typedef struct {
-  Qleei_Proc *items;
-  qleei_uisz_t len;
-  qleei_uisz_t cap;
-} Qleei_Procs;
 
 bool qleei_value_kind_list_append(Qleei_Value_Kind **items, qleei_uisz_t *cap, qleei_uisz_t *len, Qleei_Value_Kind item) {
   return qleei_list_append((void**)items, sizeof(Qleei_Value_Kind), cap, len, &item);
 }
 
-Qleei_Proc *qleei_find_proc_by_sv_name(Qleei_Procs *haystack, Qleei_String_View needle) {
+Qleei_Proc *qleei_procs_find_by_sv_name(Qleei_Procs *haystack, Qleei_String_View needle) {
   qleei_alist_foreach(Qleei_Proc, it, haystack) {
     if (qleei_sv_eq_sv(it->name_sv, needle)) {
       return it;
@@ -111,13 +15,6 @@ Qleei_Proc *qleei_find_proc_by_sv_name(Qleei_Procs *haystack, Qleei_String_View 
   }
   return NULL;
 }
-
-typedef struct {
-  QLeei_Lexer  lexer;
-  Qleei_Stack  stack;
-  Qleei_Procs  procs;
-  bool   done;
-} Qleei_Interpreter;
 
 bool qleei_is_space_char(char c) {
   return c == '\t' || c == '\n' || c == '\r' || c == ' ';
@@ -923,7 +820,7 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
 
 
     {
-      Qleei_Proc *proc = qleei_find_proc_by_sv_name(&it->procs, sv);
+      Qleei_Proc *proc = qleei_procs_find_by_sv_name(&it->procs, sv);
       if (proc != NULL) {
 	      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, proc->inputs.len)) return false;
 	      for (qleei_uisz_t i = 0; i < proc->inputs.len; ++i) {
