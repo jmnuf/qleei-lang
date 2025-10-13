@@ -239,7 +239,6 @@ extern void*  qleei_wasm_mrealloc(void *base_ptr, qleei_uisz_t bytes_count);
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <float.h>
 
 void qleei_printf(const char *fmt, ...);
 void qleei_printfn(const char *fmt, ...);
