@@ -261,6 +261,7 @@ void qleei_printfn(const char *fmt, ...);
 Qleei_String_View qleei_sv_from_zstr(const char *zstr) {
   Qleei_String_View sv = {0};
   sv.data = (char*) zstr;
+  if (zstr == NULL) return sv;
   while (sv.data[sv.len] != 0) sv.len++;
   return sv;
 }
@@ -1465,6 +1466,7 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
     if (qleei_sv_eq_zstr(sv, "mem_load_ui32")) {
       if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
       Qleei_Value_Item item;
+      qleei_alist_pop(stack, &item);
       if (!qleei_action_expects_value_kind(t.loc, sv, item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
       qleei_ui32_t val = *(qleei_ui32_t*)item.as_pointer.value;
       item.as_number.kind  = QLEEI_VALUE_KIND_NUMBER;
@@ -1586,7 +1588,7 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
       qleei_alist_pop(stack, &b);
       
       if (a.kind == QLEEI_VALUE_KIND_POINTER || b.kind == QLEEI_VALUE_KIND_POINTER) {
-	      qleei_printfn("[ERROR] Cannot do division with pointers");
+	      qleei_loc_printfn(t.loc, "[ERROR] Cannot do division with pointers");
 	      return false;
       }
 
@@ -1602,7 +1604,7 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
       qleei_alist_pop(stack, &b);
 
       if (a.kind == QLEEI_VALUE_KIND_POINTER || b.kind == QLEEI_VALUE_KIND_POINTER) {
-	      qleei_loc_printfn(t.loc, "[ERROR] Cannot do division with pointers");
+	      qleei_loc_printfn(t.loc, "[ERROR] Cannot do multiplication with pointers");
 	      return false;
       }
 
