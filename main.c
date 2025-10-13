@@ -1,33 +1,31 @@
-#include "platform.h"
-
-#define return_defer(value) do { result = value; goto defer; } while(0)
+#include "qleei.h"
 
 typedef struct {
   const char *file_path;
   uisz index;
   uisz line;
   uisz column;
-} Lex_Location;
+} QLeei_Lex_Location;
 
-#define loc_printfn(loc, ...) \
+#define qleei_loc_printfn(loc, ...) \
 do { platform_printf("%s:%zu:%zu: ", (loc).file_path, (loc).line, (loc).column); platform_printfn(__VA_ARGS__); } while (0)
 
 typedef enum {
-  TOKEN_KIND_NONE = 0,
-  TOKEN_KIND_EOF,
-  TOKEN_KIND_IDENTIFIER,
-  TOKEN_KIND_NUMBER,
-  TOKEN_KIND_BOOL,
-  TOKEN_KIND_SYMBOL,
-} Token_Kind;
+  QLEEI_TOKEN_KIND_NONE = 0,
+  QLEEI_TOKEN_KIND_EOF,
+  QLEEI_TOKEN_KIND_IDENTIFIER,
+  QLEEI_TOKEN_KIND_NUMBER,
+  QLEEI_TOKEN_KIND_BOOL,
+  QLEEI_TOKEN_KIND_SYMBOL,
+} Qleei_Token_Kind;
 
 typedef struct {
-  Token_Kind kind;
-  Lex_Location loc;
+  Qleei_Token_Kind kind;
+  QLeei_Lex_Location loc;
 
   String_View string;
   double number;
-} Token;
+} QLeei_Token;
 
 typedef struct {
   const char *input_path;
@@ -38,71 +36,71 @@ typedef struct {
   uisz line;
   uisz column;
 
-  Token token;
-} Lexer;
+  QLeei_Token token;
+} QLeei_Lexer;
 
 typedef enum {
-  VALUE_KIND_NUMBER,
-  VALUE_KIND_POINTER,
-  VALUE_KIND_BOOL,
-} Value_Kind;
+  QLEEI_VALUE_KIND_NUMBER,
+  QLEEI_VALUE_KIND_POINTER,
+  QLEEI_VALUE_KIND_BOOL,
+} Qleei_Value_Kind;
 
 typedef union {
-  Value_Kind kind;
+  Qleei_Value_Kind kind;
   
   struct {
-    Value_Kind kind;
+    Qleei_Value_Kind kind;
     double value;
   } as_number;
 
   struct {
-    Value_Kind kind;
+    Qleei_Value_Kind kind;
     char *value;
   } as_pointer;
 
   struct {
-    Value_Kind kind;
+    Qleei_Value_Kind kind;
     bool value;
   } as_bool;
-} Value_Item;
+} Qleei_Value_Item;
 
 typedef struct {
-  Value_Item *items;
+  Qleei_Value_Item *items;
   uisz len;
   uisz cap;
-} Stack;
+} Qleei_Stack;
 
-define_list_methods(Value_Item, Stack)
+define_list_methods(Qleei_Value_Item, Qleei_Stack)
 
 typedef struct {
-  Lex_Location body_start;
-  Lex_Location body_end;
+  QLeei_Lex_Location body_start;
+  QLeei_Lex_Location body_end;
 
   String_View name_sv;
 
   struct {
-    Value_Kind *items;
+    Qleei_Value_Kind *items;
     uisz len;
     uisz cap;
   } inputs;
 
   struct {
-    Value_Kind *items;
+    Qleei_Value_Kind *items;
     uisz len;
     uisz cap;
   } outputs;
-} Proc;
+} Qleei_Proc;
 
 typedef struct {
-  Proc *items;
+  Qleei_Proc *items;
   uisz len;
   uisz cap;
-} Procs;
+} Qleei_Procs;
 
-define_list_methods(Proc, Procs)
+define_list_methods(Qleei_Proc, Qleei_Procs)
 
-Proc *find_proc_by_sv_name(Procs *haystack, String_View needle) {
-  list_foreach(Proc, it, haystack) {
+Qleei_Proc *qleei_find_proc_by_sv_name(Qleei_Procs *haystack, String_View needle) {
+  list_foreach(Qleei_Proc, it, haystack) {
     if (sv_eq_sv(it->name_sv, needle)) {
       return it;
     }
@@ -111,75 +109,75 @@ Proc *find_proc_by_sv_name(Procs *haystack, String_View needle) {
 }
 
 typedef struct {
-  Lexer  lexer;
-  Stack  stack;
-  Procs  procs;
+  QLeei_Lexer  lexer;
+  Qleei_Stack  stack;
+  Qleei_Procs  procs;
   bool   done;
-} Interpreter;
+} Qleei_Interpreter;
 
-bool is_space_char(char c) {
+bool qleei_is_space_char(char c) {
   return c == '\t' || c == '\n' || c == '\r' || c == ' ';
 }
 
-bool is_number_char(char c) {
+bool qleei_is_number_char(char c) {
   return '0' <= c && c <= '9';
 }
 
-bool is_alphabetic_char(char c) {
+bool qleei_is_alphabetic_char(char c) {
   return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z');
 }
 
-bool is_identifier_start_char(char c) {
-  return is_alphabetic_char(c) || c == '_';
+bool qleei_is_identifier_start_char(char c) {
+  return qleei_is_alphabetic_char(c) || c == '_';
 }
 
-bool is_identifier_char(char c) {
-  return is_identifier_start_char(c) || is_number_char(c);
+bool qleei_is_identifier_char(char c) {
+  return qleei_is_identifier_start_char(c) || qleei_is_number_char(c);
 }
 
-const char *get_token_kind_name(Token_Kind kind) {
+const char *qleei_get_token_kind_name(Qleei_Token_Kind kind) {
   switch(kind) {
-  case TOKEN_KIND_NONE:
+  case QLEEI_TOKEN_KIND_NONE:
     return "None";
-  case TOKEN_KIND_EOF:
+  case QLEEI_TOKEN_KIND_EOF:
     return "End of File";
-  case TOKEN_KIND_IDENTIFIER:
+  case QLEEI_TOKEN_KIND_IDENTIFIER:
     return "Identifier";
-  case TOKEN_KIND_NUMBER:
+  case QLEEI_TOKEN_KIND_NUMBER:
     return "Number";
-  case TOKEN_KIND_BOOL:
+  case QLEEI_TOKEN_KIND_BOOL:
     return "Bool";
-  case TOKEN_KIND_SYMBOL:
+  case QLEEI_TOKEN_KIND_SYMBOL:
     return "Symbol";
   }
   return "<Unknown>";
 }
 
-const char *get_value_kind_name(Value_Kind kind) {
+const char *qleei_get_value_kind_name(Qleei_Value_Kind kind) {
   switch (kind) {
-  case VALUE_KIND_NUMBER:
+  case QLEEI_VALUE_KIND_NUMBER:
     return "number";
-  case VALUE_KIND_POINTER:
+  case QLEEI_VALUE_KIND_POINTER:
     return "pointer";
-  case VALUE_KIND_BOOL:
+  case QLEEI_VALUE_KIND_BOOL:
     return "bool";
   }
   return "<Unknown>";
 }
 
-void lexer_init(Lexer *l, const char *input_path, const char *buffer, uisz buf_size) {
+void qleei_lexer_init(QLeei_Lexer *l, const char *input_path, const char *buffer, uisz buf_size) {
   l->input_path = input_path;
   l->buffer = buffer;
   l->buffer_len = buf_size;
   l->index = 0;
   l->line = 1;
   l->column = 1;
-  l->token = (Token) { .string = { .data = buffer, .len = 0 } };
+  l->token = (QLeei_Token) { .string = { .data = buffer, .len = 0 } };
 }
 
-bool lexer_next(Lexer *lexer) {
+bool qleei_lexer_next(QLeei_Lexer *lexer) {
   lexer->token.loc.file_path = lexer->input_path;
-  lexer->token.kind = TOKEN_KIND_NONE;
+  lexer->token.kind = QLEEI_TOKEN_KIND_NONE;
   if (lexer->buffer == NULL) {
     platform_printfn("[ERROR] Attempting to lex into a NULL buffer");
     return false;
@@ -187,7 +185,7 @@ bool lexer_next(Lexer *lexer) {
 
   while (lexer->index < lexer->buffer_len) {
     char c = lexer->buffer[lexer->index++];
-    while (is_space_char(c)) {
+    while (qleei_is_space_char(c)) {
       if (c == '\n') {
 	      lexer->line++;
 	      lexer->column = 1;
@@ -208,16 +206,16 @@ bool lexer_next(Lexer *lexer) {
       continue;
     }
 
-    Token *token = &lexer->token;
+    QLeei_Token *token = &lexer->token;
     token->loc.line = lexer->line;
     token->loc.column = lexer->column;
-    Lex_Location loc = token->loc;
+    QLeei_Lex_Location loc = token->loc;
 
-    if (is_number_char(c)) {
+    if (qleei_is_number_char(c)) {
       token->string.data = lexer->buffer + (lexer->index - 1);
       token->string.len = 0;
       bool decimal = false;
-      while (is_number_char(c)) {
+      while (qleei_is_number_char(c)) {
 	      lexer->column++;
 	      token->string.len++;
         if (lexer->index >= lexer->buffer_len) break;
@@ -234,15 +232,15 @@ bool lexer_next(Lexer *lexer) {
       }
       lexer->index--;
       // lexer->column++;
-      token->kind = TOKEN_KIND_NUMBER;
+      token->kind = QLEEI_TOKEN_KIND_NUMBER;
       token->number = parse_number(token->string);
       return true;
     }
 
-    if (is_identifier_start_char(c)) {
+    if (qleei_is_identifier_start_char(c)) {
       token->string.data = lexer->buffer + (lexer->index-1);
       token->string.len = 0;
-      while (is_identifier_char(c)) {
+      while (qleei_is_identifier_char(c)) {
 	      token->string.len++;
         if (lexer->index >= lexer->buffer_len) break;
 	      c = lexer->buffer[lexer->index++];
@@ -251,25 +249,25 @@ bool lexer_next(Lexer *lexer) {
       lexer->index -= 1;
 
       if (sv_eq_zstr(token->string, "true")) {
-	      token->kind = TOKEN_KIND_BOOL;
+	      token->kind = QLEEI_TOKEN_KIND_BOOL;
 	      token->number = 1;
       } else if (sv_eq_zstr(token->string, "false")) {
-	      token->kind = TOKEN_KIND_BOOL;
+	      token->kind = QLEEI_TOKEN_KIND_BOOL;
 	      token->number = 0;
       } else {
-	      token->kind = TOKEN_KIND_IDENTIFIER;
+	      token->kind = QLEEI_TOKEN_KIND_IDENTIFIER;
       }
 
       return true;
     }
 
     if (c == '\'') {
-      token->kind = TOKEN_KIND_NUMBER;
+      token->kind = QLEEI_TOKEN_KIND_NUMBER;
       token->string.data = lexer->buffer + (lexer->index - 1);
       token->string.len = 3;
 
       if (lexer->index >= lexer->buffer_len) {
-        loc_printfn(loc, "[LexError] Unterminated ASCII char literal");
+        qleei_loc_printfn(loc, "[LexError] Unterminated ASCII char literal");
         return false;
       }
       lexer->column++;
@@ -278,7 +276,7 @@ bool lexer_next(Lexer *lexer) {
       c = lexer->buffer[lexer->index++];
       token->number = (double)c;
       if (lexer->index >= lexer->buffer_len) {
-        loc_printfn(loc, "[LexError] Unterminated ASCII char literal");
+        qleei_loc_printfn(loc, "[LexError] Unterminated ASCII char literal");
         return false;
       }
 
@@ -286,14 +284,14 @@ bool lexer_next(Lexer *lexer) {
       lexer->column++;
       c = lexer->buffer[lexer->index++];
       if (c != '\'') {
-        loc_printfn(loc, "[LexError] ASCII char literal does not end with ' or takes more than 1 byte");
+        qleei_loc_printfn(loc, "[LexError] ASCII char literal does not end with ' or takes more than 1 byte");
         return false;
       }
       lexer->column++;
       return true;
     }
     
-    token->kind = TOKEN_KIND_SYMBOL;
+    token->kind = QLEEI_TOKEN_KIND_SYMBOL;
     token->string.data = lexer->buffer + (lexer->index - 1);
     token->string.len = 1;
     lexer->column++;
@@ -320,19 +318,19 @@ bool lexer_next(Lexer *lexer) {
     return true;
   }
 
-  lexer->token.kind = TOKEN_KIND_EOF;
+  lexer->token.kind = QLEEI_TOKEN_KIND_EOF;
   return true;
 }
 
-bool lexer_peek(Lexer *l, Token *t) {
-  Lexer peeker = *l;
-  if (!lexer_next(&peeker)) return false;
+bool qleei_lexer_peek(QLeei_Lexer *l, QLeei_Token *t) {
+  QLeei_Lexer peeker = *l;
+  if (!qleei_lexer_next(&peeker)) return false;
   *t = peeker.token;
   return true;
 }
 
-Lex_Location lexer_save_point(Lexer *l) {
-  Lex_Location save_point = {
+QLeei_Lex_Location qleei_lexer_save_point(QLeei_Lexer *l) {
+  QLeei_Lex_Location save_point = {
     .file_path = l->input_path,
     .index = l->index,
     .line = l->line,
@@ -341,7 +339,7 @@ Lex_Location lexer_save_point(Lexer *l) {
   return save_point;
 }
 
-bool lexer_restore_point(Lexer *l, Lex_Location save_point) {
+bool qleei_lexer_restore_point(QLeei_Lexer *l, QLeei_Lex_Location save_point) {
   l->input_path = save_point.file_path;
   l->index = save_point.index;
   l->line = save_point.line;
@@ -349,20 +347,20 @@ bool lexer_restore_point(Lexer *l, Lex_Location save_point) {
   return true;
 }
 
-void print_stack(Stack *s) {
+void qleei_print_stack(Qleei_Stack *s) {
   platform_printf("[ ");
   for (uisz i = 0; i < s->len; ++i) {
     uisz index = s->len - (i + 1);
-    Value_Item item = s->items[index];
+    Qleei_Value_Item item = s->items[index];
     if (i > 0) platform_printf(", ");
     switch (item.kind) {
-    case VALUE_KIND_NUMBER:
+    case QLEEI_VALUE_KIND_NUMBER:
       platform_printf("Number(%.4f)", item.as_number.value);
       break;
-    case VALUE_KIND_BOOL:
+    case QLEEI_VALUE_KIND_BOOL:
       platform_printf("Bool(%s)", item.as_bool.value ? "true" : "false");
       break;
-    case VALUE_KIND_POINTER:
+    case QLEEI_VALUE_KIND_POINTER:
       platform_printf("Pointer(%p)", item.as_pointer.value);
       break;
     }
@@ -370,71 +368,71 @@ void print_stack(Stack *s) {
   platform_printf(" ]\n");
 }
 
-bool stack_operation_requires_n_items(Lex_Location loc, Stack *s, String_View sv, uisz n) {
+bool qleei_stack_operation_requires_n_items(QLeei_Lex_Location loc, Qleei_Stack *s, String_View sv, uisz n) {
   if (s->len < n) {
-    loc_printfn(loc, "[ERROR] "SV_Fmt_Str" requires %zu items in the stack to execute", SV_Fmt_Arg(sv), n);
+    qleei_loc_printfn(loc, "[ERROR] "SV_Fmt_Str" requires %zu items in the stack to execute", SV_Fmt_Arg(sv), n);
     return false;
   }
   return true;
 }
 
-bool action_expects_value_kind(String_View sv, Value_Kind got, Value_Kind exp) {
+bool qleei_action_expects_value_kind(String_View sv, Qleei_Value_Kind got, Qleei_Value_Kind exp) {
   if (got == exp) return true;
   platform_printfn("[TYPE_ERROR] Invalid type passed to "SV_Fmt_Str" expected pointer", SV_Fmt_Arg(sv));
   return false;
 }
 
-double value_item_as_number(Value_Item item) {
+double qleei_value_item_as_number(Qleei_Value_Item item) {
   switch (item.kind) {
-  case VALUE_KIND_NUMBER:
+  case QLEEI_VALUE_KIND_NUMBER:
     return item.as_number.value;
-  case VALUE_KIND_BOOL:
+  case QLEEI_VALUE_KIND_BOOL:
     return (double)item.as_bool.value;
-  case VALUE_KIND_POINTER:
+  case QLEEI_VALUE_KIND_POINTER:
     return (double)(uisz)item.as_pointer.value;
   }
   return 0.0;
 }
 
-bool value_item_as_bool(Value_Item item) {
+bool qleei_value_item_as_bool(Qleei_Value_Item item) {
   switch (item.kind) {
-  case VALUE_KIND_NUMBER:
+  case QLEEI_VALUE_KIND_NUMBER:
     return item.as_number.value != 0;
-  case VALUE_KIND_BOOL:
+  case QLEEI_VALUE_KIND_BOOL:
     return item.as_bool.value;
-  case VALUE_KIND_POINTER:
+  case QLEEI_VALUE_KIND_POINTER:
     return item.as_pointer.value != NULL;
   }
   return false;
 }
 
-bool execute_token(Interpreter *it, bool inside_of_proc, Token t);
+bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token t);
 
 
 // Expects word 'while' to have been consumed already
-bool execute_while(Interpreter *it, bool inside_of_proc) {
-  Lexer *l = &it->lexer;
-  Lex_Location start_point = lexer_save_point(l);
-  Lex_Location end_point = {0};
+bool qleei_execute_while(Qleei_Interpreter *it, bool inside_of_proc) {
+  QLeei_Lexer *l = &it->lexer;
+  QLeei_Lex_Location start_point = qleei_lexer_save_point(l);
+  QLeei_Lex_Location end_point = {0};
   bool end_point_found = false;
-  while (lexer_next(l)) {
-    Token t = (const Token) l->token;
+  while (qleei_lexer_next(l)) {
+    QLeei_Token t = l->token;
     if (sv_eq_zstr(t.string, "begin")) {
       if (it->stack.len == 0) {
 	      platform_printfn("[ERROR] While loop requires at least one element on the stack to do evaluation but nothing is on the stack");
 	      return false;
       }
 
-      Value_Item item;
-      Stack_pop(&it->stack, &item);
-      if (!value_item_as_bool(item)) {
+      Qleei_Value_Item item;
+      Qleei_Stack_pop(&it->stack, &item);
+      if (!qleei_value_item_as_bool(item)) {
 	      if (end_point_found) {
-	        lexer_restore_point(l, end_point);
+	        qleei_lexer_restore_point(l, end_point);
 	        return true;
 	      }
 	      uisz level = 1;
 	      while (level > 0) {
-	        if (!lexer_next(l)) return false;
+	        if (!qleei_lexer_next(l)) return false;
 	        t = l->token;
 	        if (sv_eq_zstr(t.string, "while")) {
 	          level++;
@@ -451,132 +449,132 @@ bool execute_while(Interpreter *it, bool inside_of_proc) {
     if (sv_eq_zstr(t.string, "end")) {
       if (!end_point_found) {
 	      end_point_found = true;
-	      end_point = lexer_save_point(l);
+	      end_point = qleei_lexer_save_point(l);
       }
-      lexer_restore_point(l, start_point);
+      qleei_lexer_restore_point(l, start_point);
       continue;
     }
 
-    if (!execute_token(it, inside_of_proc, t)) return false;
+    if (!qleei_execute_token(it, inside_of_proc, t)) return false;
   }
 
   return false;
 }
 
 
-bool parse_proc(Interpreter *it) {
-  Lexer *l = &it->lexer;
-  if (!lexer_next(l)) return false;
-  if (l->token.kind != TOKEN_KIND_IDENTIFIER) {
+bool qleei_parse_proc(Qleei_Interpreter *it) {
+  QLeei_Lexer *l = &it->lexer;
+  if (!qleei_lexer_next(l)) return false;
+  if (l->token.kind != QLEEI_TOKEN_KIND_IDENTIFIER) {
     platform_printfn("%zu:%zu: [ERROR] Procedure is required to be given a name after 'proc' keyword", l->token.loc.line, l->token.loc.column);
     return false;
   }
 
   String_View name_sv = l->token.string;
-  Proc proc = {0};
+  Qleei_Proc proc = {0};
   proc.name_sv = name_sv;
 
-  if (!lexer_next(l)) return false;
+  if (!qleei_lexer_next(l)) return false;
 
   // ==================================================
   // Parse Inputs
   // --------------------------------------------------
   if (!sv_eq_zstr(l->token.string, "[")) {
-    loc_printfn(l->token.loc, "[ERROR] After procedure name must specify inputs & outputs like `[] -> []`");
+    qleei_loc_printfn(l->token.loc, "[ERROR] After procedure name must specify inputs & outputs like `[] -> []`");
     platform_printfn("[NOTE] The return type is just imaginary, we don't check if you honor it KEKW");
     return false;
   }
 
   while (!sv_eq_zstr(l->token.string, "]")) {
-    if (!lexer_next(l)) {
-      loc_printfn(l->token.loc, "[ERROR] After procedure name must specify inputs & outputs like `[] -> []`");
+    if (!qleei_lexer_next(l)) {
+      qleei_loc_printfn(l->token.loc, "[ERROR] After procedure name must specify inputs & outputs like `[] -> []`");
       platform_printfn("[NOTE] The return type is just imaginary, we don't check if you honor it KEKW");
       return false;
     }
     if (sv_eq_zstr(l->token.string, "]")) break;
 
-    if (l->token.kind != TOKEN_KIND_IDENTIFIER) {
-      loc_printfn(l->token.loc, "[ERROR] Unexpected %s token when expecting identifier for type name", get_token_kind_name(l->token.kind));
+    if (l->token.kind != QLEEI_TOKEN_KIND_IDENTIFIER) {
+      qleei_loc_printfn(l->token.loc, "[ERROR] Unexpected %s token when expecting identifier for type name", qleei_get_token_kind_name(l->token.kind));
       platform_printfn("[NOTE] Token source: '"SV_Fmt_Str"'", SV_Fmt_Arg(l->token.string));
       return false;
     }
 
     if (sv_eq_zstr(l->token.string, "pointer") || sv_eq_zstr(l->token.string, "ptr")) {
-      alist_append(&proc.inputs, VALUE_KIND_POINTER);
+      alist_append(&proc.inputs, QLEEI_VALUE_KIND_POINTER);
     } else if (sv_eq_zstr(l->token.string, "number")) {
-      alist_append(&proc.inputs, VALUE_KIND_NUMBER);
+      alist_append(&proc.inputs, QLEEI_VALUE_KIND_NUMBER);
     } else if (sv_eq_zstr(l->token.string, "bool")) {
-      alist_append(&proc.outputs, VALUE_KIND_BOOL);
+      alist_append(&proc.outputs, QLEEI_VALUE_KIND_BOOL);
     } else {
-      loc_printfn(l->token.loc, "[ERROR] Invalid type name only 'pointer', 'ptr', and 'number' types exist");
+      qleei_loc_printfn(l->token.loc, "[ERROR] Invalid type name only 'pointer', 'ptr', and 'number' types exist");
       return false;
     }
 
-    Token t = {0};
-    if (!lexer_peek(l, &t)) return false;
+    QLeei_Token t = {0};
+    if (!qleei_lexer_peek(l, &t)) return false;
 
     if (sv_eq_zstr(t.string, ",") || sv_eq_zstr(t.string, "]")) {
-      lexer_next(l);
+      qleei_lexer_next(l);
     }
   }
 
   if (!sv_eq_zstr(l->token.string, "]")) {
-    loc_printfn(l->token.loc, "[ERROR] After procedure name must specify inputs & outputs like `[] -> []`");
+    qleei_loc_printfn(l->token.loc, "[ERROR] After procedure name must specify inputs & outputs like `[] -> []`");
     platform_printfn("[NOTE] Token source: '"SV_Fmt_Str"'", SV_Fmt_Arg(l->token.string));
     platform_printfn("[NOTE] The return type is just imaginary, we don't check if you honor it KEKW");
     return false;
   }
-  if (!lexer_next(l)) return false;
+  if (!qleei_lexer_next(l)) return false;
 
 
   if (!sv_eq_zstr(l->token.string, "->")) {
-    loc_printfn(l->token.loc, "[ERROR] Expected arrow symbol '->' between proc inputs and outputs");
+    qleei_loc_printfn(l->token.loc, "[ERROR] Expected arrow symbol '->' between proc inputs and outputs");
     return false;
   }
-  if (!lexer_next(l)) return false;
+  if (!qleei_lexer_next(l)) return false;
   
   // ==================================================
   // Parse Outputs
   // --------------------------------------------------
   if (!sv_eq_zstr(l->token.string, "[")) {
-    loc_printfn(l->token.loc, "[ERROR] After procedure inputs outputs must be specified: <input> -> <output>");
+    qleei_loc_printfn(l->token.loc, "[ERROR] After procedure inputs outputs must be specified: <input> -> <output>");
     platform_printfn("[NOTE] Found '"SV_Fmt_Str"' but expected '['", SV_Fmt_Arg(l->token.string));
     return false;
   }
 
-  while (l->token.kind != TOKEN_KIND_SYMBOL || !sv_eq_zstr(l->token.string, "]")) {
-    if (!lexer_next(l)) {
-      loc_printfn(l->token.loc, "[ERROR] After procedure inputs outputs must be specified");
+  while (l->token.kind != QLEEI_TOKEN_KIND_SYMBOL || !sv_eq_zstr(l->token.string, "]")) {
+    if (!qleei_lexer_next(l)) {
+      qleei_loc_printfn(l->token.loc, "[ERROR] After procedure inputs outputs must be specified");
       return false;
     }
     if (sv_eq_zstr(l->token.string, "]")) break;
 
-    if (l->token.kind != TOKEN_KIND_IDENTIFIER) {
-      loc_printfn(l->token.loc, "[ERROR] Unexpected %s token when expecting identifier for type name", get_token_kind_name(l->token.kind));
+    if (l->token.kind != QLEEI_TOKEN_KIND_IDENTIFIER) {
+      qleei_loc_printfn(l->token.loc, "[ERROR] Unexpected %s token when expecting identifier for type name", qleei_get_token_kind_name(l->token.kind));
       return false;
     }
 
     if (sv_eq_zstr(l->token.string, "pointer") || sv_eq_zstr(l->token.string, "ptr")) {
-      alist_append(&proc.outputs, VALUE_KIND_POINTER);
+      alist_append(&proc.outputs, QLEEI_VALUE_KIND_POINTER);
     } else if (sv_eq_zstr(l->token.string, "number")) {
-      alist_append(&proc.outputs, VALUE_KIND_NUMBER);
+      alist_append(&proc.outputs, QLEEI_VALUE_KIND_NUMBER);
     } else if (sv_eq_zstr(l->token.string, "bool")) {
-      alist_append(&proc.outputs, VALUE_KIND_BOOL);
+      alist_append(&proc.outputs, QLEEI_VALUE_KIND_BOOL);
     } else {
-      loc_printfn(l->token.loc, "[ERROR] Invalid type name only 'pointer', 'ptr', and 'number' types exist");
+      qleei_loc_printfn(l->token.loc, "[ERROR] Invalid type name only 'pointer', 'ptr', and 'number' types exist");
       return false;
     }
 
-    Token t = {0};
-    if (!lexer_peek(l, &t)) return false;
+    QLeei_Token t = {0};
+    if (!qleei_lexer_peek(l, &t)) return false;
 
     if (sv_eq_zstr(t.string, ",")) {
-      lexer_next(l);
+      qleei_lexer_next(l);
     }
   }
 
   if (!sv_eq_zstr(l->token.string, "]")) {
-    loc_printfn(l->token.loc, "[ERROR] After procedure inputs outputs must be specified");
+    qleei_loc_printfn(l->token.loc, "[ERROR] After procedure inputs outputs must be specified");
     platform_printfn("[NOTE] The return type is just imaginary, we don't check if you honor it KEKW");
     return false;
   }
@@ -585,58 +583,58 @@ bool parse_proc(Interpreter *it) {
   // ==================================================
   // Parse Body
   // --------------------------------------------------
-  proc.body_start = lexer_save_point(l);
+  proc.body_start = qleei_lexer_save_point(l);
   uisz level = 1;
   while (true) {
-    if (!lexer_next(l)) return false;
-    if (l->token.kind == TOKEN_KIND_NONE) {
-      platform_printfn("[UNREACHABLE] Lexer.Token.kind == TOKEN_KIND_NONE in parse_proc");
+    if (!qleei_lexer_next(l)) return false;
+    if (l->token.kind == QLEEI_TOKEN_KIND_NONE) {
+      platform_printfn("[UNREACHABLE] Lexer.Token.kind == QLEEI_TOKEN_KIND_NONE in parse_proc");
       return false;
     }
-    if (l->token.kind == TOKEN_KIND_EOF) {
+    if (l->token.kind == QLEEI_TOKEN_KIND_EOF) {
       platform_printfn("[ERROR] Procedure is missing to finish with 'end' keyword");
       return false;
     }
-    if (l->token.kind == TOKEN_KIND_IDENTIFIER) {
+    if (l->token.kind == QLEEI_TOKEN_KIND_IDENTIFIER) {
       if (sv_eq_zstr(l->token.string, "while")) {
 	      level++;
       } else if (sv_eq_zstr(l->token.string, "end")) {
 	      level--;
 	      if (level == 0) {
-          proc.body_end = lexer_save_point(l);
+          proc.body_end = qleei_lexer_save_point(l);
           break;
         }
       }
     }
   }
 
-  Procs_append(&it->procs, proc);
+  Qleei_Procs_append(&it->procs, proc);
 
   return true;
 }
 
-bool execute_proc(Interpreter *it, Proc *proc);
+bool qleei_execute_proc(Qleei_Interpreter *it, Qleei_Proc *proc);
 
-bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
-  Stack *stack = &it->stack;
+bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token t) {
+  Qleei_Stack *stack = &it->stack;
   String_View sv = t.string;
 
   switch (t.kind) {
-  case TOKEN_KIND_NONE:
-    platform_printfn("[UNREACHABLE] interpreter_step switch (lexer.kind) case TOKEN_KIND_NONE");
+  case QLEEI_TOKEN_KIND_NONE:
+    platform_printfn("[UNREACHABLE] qleei_interpreter_step switch (lexer.kind) case QLEEI_TOKEN_KIND_NONE");
     return false;
 
-  case TOKEN_KIND_EOF:
+  case QLEEI_TOKEN_KIND_EOF:
     it->done = true;
     return true;
 
-  case TOKEN_KIND_IDENTIFIER:
+  case QLEEI_TOKEN_KIND_IDENTIFIER:
     if (sv_eq_zstr(sv, "proc")) {
       if (inside_of_proc) {
 	      platform_printfn("[ERROR] Cannot define a procedure while inside of a procedure");
 	      return false;
       }
-      if (!parse_proc(it)) return false;
+      if (!qleei_parse_proc(it)) return false;
       return true;
     }
 
@@ -646,23 +644,23 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
     }
 
     if (sv_eq_zstr(sv, "while")) {
-      if (!execute_while(it, inside_of_proc)) return false;
+      if (!qleei_execute_while(it, inside_of_proc)) return false;
       return true;
     }
 
     // [number] -> []
     if (sv_eq_zstr(sv, "print_number")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Value_Item item;
-      Stack_pop(stack, &item);
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Qleei_Value_Item item;
+      Qleei_Stack_pop(stack, &item);
       switch (item.kind) {
-      case VALUE_KIND_NUMBER:
+      case QLEEI_VALUE_KIND_NUMBER:
 	      platform_printfn("%.4f", item.as_number.value);
 	      break;
-      case VALUE_KIND_BOOL:
+      case QLEEI_VALUE_KIND_BOOL:
 	      platform_printfn("%d", (int)item.as_bool.value);
 	      break;
-      case VALUE_KIND_POINTER:
+      case QLEEI_VALUE_KIND_POINTER:
 	      platform_printfn("%zu", (uisz)item.as_pointer.value);
 	      break;
       }
@@ -671,17 +669,17 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [number] -> []
     if (sv_eq_zstr(sv, "print_uisz")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Value_Item item;
-      Stack_pop(stack, &item);
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Qleei_Value_Item item;
+      Qleei_Stack_pop(stack, &item);
       switch (item.kind) {
-      case VALUE_KIND_NUMBER:
+      case QLEEI_VALUE_KIND_NUMBER:
 	      platform_printfn("%zu", (uisz)item.as_number.value);
 	      break;
-      case VALUE_KIND_BOOL:
+      case QLEEI_VALUE_KIND_BOOL:
 	      platform_printfn("%zu", (uisz)item.as_bool.value);
 	      break;
-      case VALUE_KIND_POINTER:
+      case QLEEI_VALUE_KIND_POINTER:
 	      platform_printfn("%zu", (uisz)item.as_pointer.value);
 	      break;
       }
@@ -690,10 +688,10 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [pointer] -> []
     if (sv_eq_zstr(sv, "print_ptr")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Value_Item item;
-      Stack_pop(stack, &item);
-      if (!action_expects_value_kind(sv, item.kind, VALUE_KIND_POINTER)) return false;
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Qleei_Value_Item item;
+      Qleei_Stack_pop(stack, &item);
+      if (!qleei_action_expects_value_kind(sv, item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
       void *ptr = item.as_pointer.value;
       platform_printfn("%p", ptr);
       return true;
@@ -701,10 +699,10 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [number] -> []
     if (sv_eq_zstr(sv, "print_char")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Value_Item item;
-      Stack_pop(stack, &item);
-      if (item.kind != VALUE_KIND_NUMBER) {
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Qleei_Value_Item item;
+      Qleei_Stack_pop(stack, &item);
+      if (item.kind != QLEEI_VALUE_KIND_NUMBER) {
 	      platform_printfn("[ERROR] Invalid item type passed to print_char");
 	      return false;
       }
@@ -720,10 +718,10 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [bool] -> []
     if (sv_eq_zstr(sv, "print_bool")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Value_Item item;
-      Stack_pop(stack, &item);
-      if (item.kind != VALUE_KIND_BOOL) {
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Qleei_Value_Item item;
+      Qleei_Stack_pop(stack, &item);
+      if (item.kind != QLEEI_VALUE_KIND_BOOL) {
 	      platform_printfn("[ERROR] Invalid item type passed to print_bool");
 	      return false;
       }
@@ -733,16 +731,16 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [] -> []
     if (sv_eq_zstr(sv, "print_stack")) {
-      print_stack(stack);
+      qleei_print_stack(stack);
       return true;
     }
 
     // [pointer] -> []
     if (sv_eq_zstr(sv, "print_zstr")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Value_Item item;
-      Stack_pop(stack, &item);
-      if (item.kind != VALUE_KIND_POINTER) {
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Qleei_Value_Item item;
+      Qleei_Stack_pop(stack, &item);
+      if (item.kind != QLEEI_VALUE_KIND_POINTER) {
 	      platform_printfn("[ERROR] Invalid type passed to "SV_Fmt_Str" expected pointer", SV_Fmt_Arg(sv));
 	      return false;
       }
@@ -753,46 +751,46 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [T] -> [T, T]
     if (sv_eq_zstr(sv, "dup")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Value_Item n = *Stack_last(stack);
-      Stack_append(stack, n);
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Qleei_Value_Item n = *Qleei_Stack_last(stack);
+      Qleei_Stack_append(stack, n);
       return true;
     }
 
     // [a, b] -> [b, a, b]
     if (sv_eq_zstr(sv, "over")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      Value_Item n = stack->items[stack->len-2];
-      Stack_append(stack, n);
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
+      Qleei_Value_Item n = stack->items[stack->len-2];
+      Qleei_Stack_append(stack, n);
       return true;
     }
 
     // [T] -> []
     if (sv_eq_zstr(sv, "drop")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Stack_pop(stack, NULL);
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Qleei_Stack_pop(stack, NULL);
       return true;
     }
 
     // [a, b] -> [b, a]
     if (sv_eq_zstr(sv, "rot2") || sv_eq_zstr(sv, "swap2")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      Stack_swap(stack, stack->len - 1, stack->len - 2);
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
+      Qleei_Stack_swap(stack, stack->len - 1, stack->len - 2);
       return true;
     }
 
     // [a, b, c] -> [c, b, a]
     if (sv_eq_zstr(sv, "swap3")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 3)) return false;
-      Stack_swap(stack, stack->len - 1, stack->len - 3);
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 3)) return false;
+      Qleei_Stack_swap(stack, stack->len - 1, stack->len - 3);
       return true;
     }
 
     // [a, b, c] -> [a, b, c]
     if (sv_eq_zstr(sv, "rot3")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 3)) return false;
-      Stack_swap(stack, stack->len - 1, stack->len - 3); // [a, b, c] -> [c, b, a]
-      Stack_swap(stack, stack->len - 1, stack->len - 2); // [c, b, a] -> [b, c, a]
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 3)) return false;
+      Qleei_Stack_swap(stack, stack->len - 1, stack->len - 3); // [a, b, c] -> [c, b, a]
+      Qleei_Stack_swap(stack, stack->len - 1, stack->len - 2); // [c, b, a] -> [b, c, a]
       return true;
     }
 
@@ -800,34 +798,34 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
     if (sv_eq_zstr(sv, "assert_empty")) {
       if (stack->len != 0) {
 	      platform_printfn("[ERROR] Expected stack to be empty but %zu elements remain in it", stack->len);
-	      print_stack(stack);
+	      qleei_print_stack(stack);
       }
       return true;
     }
 
     // [number(uisz)] -> [ptr]
     if (sv_eq_zstr(sv, "mem_alloc")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Value_Item item;
-      Stack_pop(stack, &item);
-      if (item.kind != VALUE_KIND_NUMBER) {
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Qleei_Value_Item item;
+      Qleei_Stack_pop(stack, &item);
+      if (item.kind != QLEEI_VALUE_KIND_NUMBER) {
 	      platform_printfn("[ERROR] Invalid type passed to "SV_Fmt_Str" expected number", SV_Fmt_Arg(sv));
 	      return false;
       }
       uisz n = (uisz)item.as_number.value;
       void *ptr = platform_mem_alloc(n);
-      item.as_pointer.kind = VALUE_KIND_POINTER;
+      item.as_pointer.kind = QLEEI_VALUE_KIND_POINTER;
       item.as_pointer.value = ptr;
-      Stack_append(stack, item);
+      Qleei_Stack_append(stack, item);
       return true;
     }
 
     // [ptr] -> -
     if (sv_eq_zstr(sv, "mem_free")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Value_Item item;
-      Stack_pop(stack, &item);
-      if (item.kind != VALUE_KIND_POINTER) {
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Qleei_Value_Item item;
+      Qleei_Stack_pop(stack, &item);
+      if (item.kind != QLEEI_VALUE_KIND_POINTER) {
 	      platform_printfn("[ERROR] Invalid type passed to "SV_Fmt_Str" expected pointer", SV_Fmt_Arg(sv));
 	      return false;
       }
@@ -837,14 +835,14 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
     }
 
     if (sv_eq_zstr(sv, "mem_save_si8")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      Value_Item ptr_item, val_item;
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
+      Qleei_Value_Item ptr_item, val_item;
 
-      Stack_pop(stack, &ptr_item);
-      if (!action_expects_value_kind(sv, ptr_item.kind, VALUE_KIND_POINTER)) return false;
+      Qleei_Stack_pop(stack, &ptr_item);
+      if (!qleei_action_expects_value_kind(sv, ptr_item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
 
-      Stack_pop(stack, &val_item);
-      if (!action_expects_value_kind(sv, val_item.kind, VALUE_KIND_NUMBER)) return false;
+      Qleei_Stack_pop(stack, &val_item);
+      if (!qleei_action_expects_value_kind(sv, val_item.kind, QLEEI_VALUE_KIND_NUMBER)) return false;
 
       si8 *ptr = (si8*)ptr_item.as_pointer.value;
       si8  val =  (si8)val_item.as_number.value;
@@ -855,19 +853,19 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [ptr, ui8] -> -
     if (sv_eq_zstr(sv, "mem_save_ui8")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      Value_Item ptr_item, val_item;
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
+      Qleei_Value_Item ptr_item, val_item;
 
-      Stack_pop(stack, &ptr_item);
-      if (ptr_item.kind != VALUE_KIND_POINTER) {
-	      loc_printfn(t.loc, "[ERROR] "SV_Fmt_Str" requires a pointer at the top of the stack", SV_Fmt_Arg(sv));
+      Qleei_Stack_pop(stack, &ptr_item);
+      if (ptr_item.kind != QLEEI_VALUE_KIND_POINTER) {
+	      qleei_loc_printfn(t.loc, "[ERROR] "SV_Fmt_Str" requires a pointer at the top of the stack", SV_Fmt_Arg(sv));
         platform_printf("[NOTE] Current stack: ");
-        print_stack(stack);
+        qleei_print_stack(stack);
 	      return false;
       }
 
-      Stack_pop(stack, &val_item);
-      if (val_item.kind != VALUE_KIND_NUMBER) {
+      Qleei_Stack_pop(stack, &val_item);
+      if (val_item.kind != QLEEI_VALUE_KIND_NUMBER) {
 	      platform_printfn("[ERROR] "SV_Fmt_Str" requires a number second to the top of the stack", SV_Fmt_Arg(sv));
 	      return false;
       }
@@ -881,24 +879,24 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [ptr] -> [number]
     if (sv_eq_zstr(sv, "mem_load_ui8")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Value_Item item;
-      Stack_pop(stack, &item);
-      if (!action_expects_value_kind(sv, item.kind, VALUE_KIND_POINTER)) return false;
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Qleei_Value_Item item;
+      Qleei_Stack_pop(stack, &item);
+      if (!qleei_action_expects_value_kind(sv, item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
       char *ptr = item.as_pointer.value;
       unsigned char val = (unsigned char)*ptr;
-      item.as_number.kind  = VALUE_KIND_NUMBER;
+      item.as_number.kind  = QLEEI_VALUE_KIND_NUMBER;
       item.as_number.value = (double)val;
-      Stack_append(stack, item);
+      Qleei_Stack_append(stack, item);
       return true;
     }
 
     // [ptr, ui32] -> -
     if (sv_eq_zstr(sv, "mem_save_ui32")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      Value_Item ptr_item, val_item;
-      if (!action_expects_value_kind(sv, ptr_item.kind, VALUE_KIND_POINTER)) return false;
-      if (!action_expects_value_kind(sv, val_item.kind, VALUE_KIND_NUMBER)) return false;
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
+      Qleei_Value_Item ptr_item, val_item;
+      if (!qleei_action_expects_value_kind(sv, ptr_item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
+      if (!qleei_action_expects_value_kind(sv, val_item.kind, QLEEI_VALUE_KIND_NUMBER)) return false;
       ui32 *ptr = (ui32*)ptr_item.as_pointer.value;
       ui32  val = (ui32)val_item.as_number.value;
       *ptr = val;
@@ -907,30 +905,30 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
     // [ptr] -> [ui32]
     if (sv_eq_zstr(sv, "mem_load_ui32")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Value_Item item;
-      if (!action_expects_value_kind(sv, item.kind, VALUE_KIND_POINTER)) return false;
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
+      Qleei_Value_Item item;
+      if (!qleei_action_expects_value_kind(sv, item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
       ui32 val = *(ui32*)item.as_pointer.value;
-      item.as_number.kind  = VALUE_KIND_NUMBER;
+      item.as_number.kind  = QLEEI_VALUE_KIND_NUMBER;
       item.as_number.value = val;
-      Stack_append(stack, item);
+      Qleei_Stack_append(stack, item);
       return true;
     }
 
 
     {
-      Proc *proc = find_proc_by_sv_name(&it->procs, sv);
+      Qleei_Proc *proc = qleei_find_proc_by_sv_name(&it->procs, sv);
       if (proc != NULL) {
-	      if (!stack_operation_requires_n_items(t.loc, stack, sv, proc->inputs.len)) return false;
+	      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, proc->inputs.len)) return false;
 	      for (uisz i = 0; i < proc->inputs.len; ++i) {
-	        Value_Kind received = (stack->items[(proc->inputs.len - (i + 1))]).kind;
-	        Value_Kind expected = proc->inputs.items[i];
+	        Qleei_Value_Kind received = (stack->items[(proc->inputs.len - (i + 1))]).kind;
+	        Qleei_Value_Kind expected = proc->inputs.items[i];
 	        if (received != expected) {
-	          platform_printfn("[ERROR] Proc "SV_Fmt_Str" expected %s but got %s", SV_Fmt_Arg(proc->name_sv), get_value_kind_name(expected), get_value_kind_name(received));
+	          platform_printfn("[ERROR] Proc "SV_Fmt_Str" expected %s but got %s", SV_Fmt_Arg(proc->name_sv), qleei_get_value_kind_name(expected), qleei_get_value_kind_name(received));
 	          return false;
 	        }
 	      }
-	      if (!execute_proc(it, proc)) return false;
+	      if (!qleei_execute_proc(it, proc)) return false;
 	      return true;
       }
     }
@@ -938,67 +936,67 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
     platform_printfn("[ERROR] Unknown command/identifier provided: '%.*s'", (int)sv.len, sv.data);
     return false;
 
-  case TOKEN_KIND_NUMBER:
-    Stack_append(stack, (Value_Item){ .as_number = { .kind = VALUE_KIND_NUMBER, .value = t.number } });
+  case QLEEI_TOKEN_KIND_NUMBER:
+    Qleei_Stack_append(stack, (Qleei_Value_Item){ .as_number = { .kind = QLEEI_VALUE_KIND_NUMBER, .value = t.number } });
     return true;
 
-  case TOKEN_KIND_BOOL:
-    Stack_append(stack, (Value_Item){ .as_bool = { .kind = VALUE_KIND_BOOL, .value = t.number == 1.0 } });
+  case QLEEI_TOKEN_KIND_BOOL:
+    Qleei_Stack_append(stack, (Qleei_Value_Item){ .as_bool = { .kind = QLEEI_VALUE_KIND_BOOL, .value = t.number == 1.0 } });
     return true;
 
-  case TOKEN_KIND_SYMBOL:
+  case QLEEI_TOKEN_KIND_SYMBOL:
     if (sv_eq_zstr(sv, "+")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      Value_Item a, b;
-      Stack_pop(stack, &a);
-      Stack_pop(stack, &b);
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
+      Qleei_Value_Item a, b;
+      Qleei_Stack_pop(stack, &a);
+      Qleei_Stack_pop(stack, &b);
       
-      if (a.kind == VALUE_KIND_POINTER && b.kind == VALUE_KIND_POINTER) {
+      if (a.kind == QLEEI_VALUE_KIND_POINTER && b.kind == QLEEI_VALUE_KIND_POINTER) {
 	      platform_printfn("[ERROR] Cannot add 2 pointers together");
 	      return false;
       }
 
-      if (a.kind == VALUE_KIND_POINTER || b.kind == VALUE_KIND_POINTER) {
+      if (a.kind == QLEEI_VALUE_KIND_POINTER || b.kind == QLEEI_VALUE_KIND_POINTER) {
 	      char *ptr;
 	      uisz n;
-	      if (a.kind == VALUE_KIND_POINTER) {
+	      if (a.kind == QLEEI_VALUE_KIND_POINTER) {
 	        ptr = a.as_pointer.value;
-	        n = (uisz)value_item_as_number(b);
+	        n = (uisz)qleei_value_item_as_number(b);
 	      } else {
 	        ptr = b.as_pointer.value;
-	        n = (uisz)value_item_as_number(a);
+	        n = (uisz)qleei_value_item_as_number(a);
 	      }
-	      a.as_pointer.kind = VALUE_KIND_POINTER;
+	      a.as_pointer.kind = QLEEI_VALUE_KIND_POINTER;
 	      a.as_pointer.value = ptr + n;
-	      Stack_append(stack, a);
+	      Qleei_Stack_append(stack, a);
 	      return true;
       }
 
-      a.as_number.value = value_item_as_number(a) + value_item_as_number(b);
-      Stack_append(stack, a);
+      a.as_number.value = qleei_value_item_as_number(a) + qleei_value_item_as_number(b);
+      Qleei_Stack_append(stack, a);
       return true;
     }
 
     if (sv_eq_zstr(sv, "-")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      Value_Item a, b;
-      Stack_pop(stack, &a);
-      Stack_pop(stack, &b);
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
+      Qleei_Value_Item a, b;
+      Qleei_Stack_pop(stack, &a);
+      Qleei_Stack_pop(stack, &b);
 
-      if (a.kind == VALUE_KIND_POINTER && b.kind == VALUE_KIND_POINTER) {
+      if (a.kind == QLEEI_VALUE_KIND_POINTER && b.kind == QLEEI_VALUE_KIND_POINTER) {
 	      platform_printfn("[ERROR] Cannot do subtraction between 2 pointers");
 	      return false;
       }
 
-      if (a.kind == VALUE_KIND_POINTER || b.kind == VALUE_KIND_POINTER) {
+      if (a.kind == QLEEI_VALUE_KIND_POINTER || b.kind == QLEEI_VALUE_KIND_POINTER) {
 	      char *ptr;
 	      uisz n;
-	      if (a.kind == VALUE_KIND_POINTER) {
+	      if (a.kind == QLEEI_VALUE_KIND_POINTER) {
 	        ptr = a.as_pointer.value;
-	        n = (uisz)value_item_as_number(b);
+	        n = (uisz)qleei_value_item_as_number(b);
 	      } else {
 	        ptr = b.as_pointer.value;
-	        n = (uisz)value_item_as_number(a);
+	        n = (uisz)qleei_value_item_as_number(a);
 	      }
 
 	      if (n > (uisz)ptr) {
@@ -1006,57 +1004,57 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 	        return false;
 	      }
 
-	      a.as_pointer.kind  = VALUE_KIND_POINTER;
+	      a.as_pointer.kind  = QLEEI_VALUE_KIND_POINTER;
 	      a.as_pointer.value = ptr - n;
-	      Stack_append(stack, a);
+	      Qleei_Stack_append(stack, a);
 	      return true;
       }
 
-      a.as_number.value = value_item_as_number(a) - value_item_as_number(b);
-      Stack_append(stack, a);
+      a.as_number.value = qleei_value_item_as_number(a) - qleei_value_item_as_number(b);
+      Qleei_Stack_append(stack, a);
       return true;
     }
 
     if (sv_eq_zstr(sv, "/")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      Value_Item a, b;
-      Stack_pop(stack, &a);
-      Stack_pop(stack, &b);
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
+      Qleei_Value_Item a, b;
+      Qleei_Stack_pop(stack, &a);
+      Qleei_Stack_pop(stack, &b);
       
-      if (a.kind == VALUE_KIND_POINTER || b.kind == VALUE_KIND_POINTER) {
+      if (a.kind == QLEEI_VALUE_KIND_POINTER || b.kind == QLEEI_VALUE_KIND_POINTER) {
 	      platform_printfn("[ERROR] Cannot do division with pointers");
 	      return false;
       }
 
-      a.as_number.value = value_item_as_number(a) / value_item_as_number(b);
-      Stack_append(stack, a);
+      a.as_number.value = qleei_value_item_as_number(a) / qleei_value_item_as_number(b);
+      Qleei_Stack_append(stack, a);
       return true;
     }
 
     if (sv_eq_zstr(sv, "*")) {
-      if (!stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      Value_Item a, b;
-      Stack_pop(stack, &a);
-      Stack_pop(stack, &b);
+      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
+      Qleei_Value_Item a, b;
+      Qleei_Stack_pop(stack, &a);
+      Qleei_Stack_pop(stack, &b);
 
-      if (a.kind == VALUE_KIND_POINTER || b.kind == VALUE_KIND_POINTER) {
-	      loc_printfn(t.loc, "[ERROR] Cannot do division with pointers");
+      if (a.kind == QLEEI_VALUE_KIND_POINTER || b.kind == QLEEI_VALUE_KIND_POINTER) {
+	      qleei_loc_printfn(t.loc, "[ERROR] Cannot do division with pointers");
 	      return false;
       }
 
-      a.as_number.value = value_item_as_number(a) * value_item_as_number(b);
-      Stack_append(stack, a);
+      a.as_number.value = qleei_value_item_as_number(a) * qleei_value_item_as_number(b);
+      Qleei_Stack_append(stack, a);
       return true;
     }
 
     if (sv_eq_zstr(sv, "!")) {
-      loc_printfn(t.loc, "[SYSTEM] ABORTED");
+      qleei_loc_printfn(t.loc, "[SYSTEM] ABORTED");
       platform_printf("[NOTE] Stack state: ");
-      print_stack(stack);
+      qleei_print_stack(stack);
       return false;
     }
 
-    loc_printfn(t.loc, "[ERROR] Unsupported symbol '"SV_Fmt_Str"'", SV_Fmt_Arg(sv));
+    qleei_loc_printfn(t.loc, "[ERROR] Unsupported symbol '"SV_Fmt_Str"'", SV_Fmt_Arg(sv));
     platform_printf("[INFO] Symbol bytes: [");
     sv_iter(c, sv) {
       if (c > sv.data) platform_printf(", ");
@@ -1067,65 +1065,67 @@ bool execute_token(Interpreter *it, bool inside_of_proc, Token t) {
 
   }
 
-  platform_printfn("[UNREACHABLE] interpreter_step switch (lexer.kind) case %s", get_token_kind_name(t.kind));
+  platform_printfn("[UNREACHABLE] qleei_interpreter_step switch (lexer.kind) case %s", qleei_get_token_kind_name(t.kind));
   return false;
 }
 
 
-bool execute_proc(Interpreter *it, Proc *proc) {
-  Lexer *l = &it->lexer;
-  Lex_Location save_point = lexer_save_point(l);
+bool qleei_execute_proc(Qleei_Interpreter *it, Qleei_Proc *proc) {
+  QLeei_Lexer *l = &it->lexer;
+  QLeei_Lex_Location save_point = qleei_lexer_save_point(l);
   
-  lexer_restore_point(l, proc->body_start);
+  qleei_lexer_restore_point(l, proc->body_start);
 
   bool ok = true;
-  while ((ok = lexer_next(l))) {
+  while ((ok = qleei_lexer_next(l))) {
     if (sv_eq_zstr(l->token.string, "end")) break;
-    if (!execute_token(it, true, l->token)) return false;
+    if (!qleei_execute_token(it, true, l->token)) return false;
   }
 
-  if (ok) lexer_restore_point(l, save_point);
+  if (ok) qleei_lexer_restore_point(l, save_point);
 
   return ok;
 }
 
-bool interpreter_step(Interpreter *it) {
-  if (!lexer_next(&it->lexer)) return false;
+bool qleei_interpreter_step(Qleei_Interpreter *it) {
+  if (!qleei_lexer_next(&it->lexer)) return false;
 
-  if (!execute_token(it, false, it->lexer.token)) return false;
+  if (!qleei_execute_token(it, false, it->lexer.token)) return false;
 
   return true;
 }
 
-void interpreter_lexer_init(Interpreter *it, const char *input_path, const char *buffer, uisz buf_size) {
-  lexer_init(&it->lexer, input_path, buffer, buf_size);
+void qleei_interpreter_lexer_init(Qleei_Interpreter *it, const char *input_path, const char *buffer, uisz buf_size) {
+  qleei_lexer_init(&it->lexer, input_path, buffer, buf_size);
   it->stack.len = 0;
 }
 
-bool interpreter_exec(Interpreter *it) {
-  while (interpreter_step(it)) {
+bool qleei_interpreter_exec(Qleei_Interpreter *it) {
+  while (qleei_interpreter_step(it)) {
     if (it->done) return true;
   }
   return false;
 }
 
 
-bool interpret_buffer(const char *buffer_source_path, const char *buffer, uisz buf_size) {
+bool qleei_interpret_buffer(const char *buffer_source_path, const char *buffer, uisz buf_size) {
   bool result = false;
 
-  Interpreter it = {0};
-  interpreter_lexer_init(&it, buffer_source_path, buffer, buf_size);
+  Qleei_Interpreter it = {0};
+  qleei_interpreter_lexer_init(&it, buffer_source_path, buffer, buf_size);
 
-  while (interpreter_step(&it)) {
-    if (it.done) return_defer(true);
+  while (qleei_interpreter_step(&it)) {
+    if (it.done) {
+      result = true;
+      break;
+    }
   }
 
-defer:
-  Stack_free(&it.stack);
+  Qleei_Stack_free(&it.stack);
   return result;
 }
 
-#ifdef PLATFORM_DESKTOP
+#if defined(PLATFORM_DESKTOP) //&& defined(QLEEI_INTERPRETER)
 
 #include <stddef.h>
 #include <stdalign.h>
@@ -1158,7 +1158,7 @@ int main(int argc, char **argv) {
 
   if (sb.count > 0 && sb.items[sb.count - 1] == 0) sb.count--;
 
-  if (!interpret_buffer(input_path, sb.items, sb.count)) return 1;
+  if (!qleei_interpret_buffer(input_path, sb.items, sb.count)) return 1;
 
   return 0;
 }
