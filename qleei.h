@@ -898,7 +898,7 @@ bool qleei_action_expects_value_kind(QLeei_Lex_Location loc, Qleei_String_View s
     "[TYPE_ERROR] Invalid type passed to "QLEEI_SV_Fmt_Str" expected %s but got %s",
     QLEEI_SV_Fmt_Arg(sv),
     qleei_get_value_kind_name(exp),
-    qleei_get_value_kind_name(got),
+    qleei_get_value_kind_name(got)
   );
   return false;
 }

@@ -312,7 +312,7 @@ int main(int argc, char **argv) {
         printf(" - %s\n", pair->key);
       }
       printf("==================================================\n");
-      if (m.items) da_free(&m);
+      if (m.items) da_free(m);
       if (!ok) return 1;
     } else {
       cmd_append(&cmd, native_output);
