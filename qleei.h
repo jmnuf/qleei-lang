@@ -471,6 +471,10 @@ bool qleei_lexer_next(QLeei_Lexer *lexer) {
       } else {
 	      lexer->column++;
       }
+      if (lexer->index >= lexer->buffer_len) {
+        c = 0;
+        break;
+      }
       c = lexer->buffer[lexer->index++];
     }
 
