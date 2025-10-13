@@ -660,7 +660,13 @@ bool qleei_stack_operation_requires_n_items(QLeei_Lex_Location loc, Qleei_Stack 
 
 bool qleei_action_expects_value_kind(QLeei_Lex_Location loc, Qleei_String_View sv, Qleei_Value_Kind got, Qleei_Value_Kind exp) {
   if (got == exp) return true;
-  qleei_loc_printfn(loc, "[TYPE_ERROR] Invalid type passed to "QLEEI_SV_Fmt_Str" expected pointer", QLEEI_SV_Fmt_Arg(sv));
+  qleei_loc_printfn(
+    loc,
+    "[TYPE_ERROR] Invalid type passed to "QLEEI_SV_Fmt_Str" expected %s but got %s",
+    QLEEI_SV_Fmt_Arg(sv),
+    qleei_get_value_kind_name(exp),
+    qleei_get_value_kind_name(got),
+  );
   return false;
 }
 
