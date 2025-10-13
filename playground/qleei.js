@@ -555,7 +555,7 @@ const env = {
 
       if (ss.match(/^\%(\d+)s/)) { // Fixed precision string
         i++;
-        const precision_str = ss.matches(/^\%(\d+)s/)[1];
+        const precision_str = ss.match(/^\%(\d+)s/)[1];
         const precision = +precision_str;
         const zstr = mem.read_zstr(view.shift_ptr());
         let message = zstr.str;
