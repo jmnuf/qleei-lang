@@ -19,6 +19,14 @@ typedef struct {
   size_t capacity;
 } Map;
 
+/**
+ * Locate a map entry by its key.
+ *
+ * @param m Map to search.
+ * @param key NUL-terminated string key to find; must outlive the map entry if stored.
+ * @returns Pointer to the matching Map_Result_Item if found, `NULL` otherwise.
+ *          The returned pointer refers to the map's internal storage and must not be freed by the caller.
+ */
 Map_Result_Item *Map_find_key(Map *m, const char *key) {
   if (m->count == 0) return NULL;
   da_foreach(Map_Result_Item, pair, m) {
@@ -27,7 +35,15 @@ Map_Result_Item *Map_find_key(Map *m, const char *key) {
   return NULL;
 }
 
-// key should be garantueed to outlive the map
+/**
+ * Set or insert a key with its boolean value in the map.
+ *
+ * If the key already exists, its value is updated; otherwise a new entry is appended.
+ * The caller must ensure `key` remains valid for the lifetime of the map.
+ * @param m Map to modify.
+ * @param key Null-terminated string key whose lifetime must outlive the map.
+ * @param ok Boolean value to associate with the key.
+ */
 void Map_set_key(Map *m, const char *key, bool ok) {
   Map_Result_Item *existing = Map_find_key(m, key);
   if (existing) {
@@ -84,6 +100,18 @@ void usage(const char *program) {
   printf("    -etags                ---        Run etags on the C codebase\n");
 }
 
+/**
+ * Ensure a Unit is compiled to its output path when required.
+ *
+ * Builds the unit if the unit is marked for forced rebuild or its output is out of date:
+ * selects target-appropriate compiler/linker options, adds non-header inputs to the compile
+ * command, runs the compiler, logs the outcome, and clears the unit's state before returning.
+ *
+ * @param cmd Command builder and executor used to assemble and run the compiler invocation.
+ * @param u Unit to build (provides inputs, target, flags, wasm export list, and output path).
+ * @returns `true` if the unit is up to date or was built successfully, `false` if the build failed
+ *          or the unit could not be built (for example, if it contains only header inputs).
+ */
 bool build_unit(Cmd *cmd, Unit *u) {
   bool result = true;
   if (u->flags & UNIT_FLAG_FORCE_BUILD || needs_rebuild(u->output_path, u->items, u->count)) {
@@ -158,6 +186,13 @@ bool build_etags(Cmd *cmd) {
 }
 
 
+/**
+ * Program entry point that builds desktop and WebAssembly targets, updates TAGS when requested, and optionally runs the built native executable against a single input or all examples.
+ *
+ * The function parses command-line arguments ("run", "build", "-etags", "all"), invokes etags generation, builds the native and wasm outputs (with configurable debug/force flags and wasm exports), optionally copies the wasm output to ./playground, and runs the native binary either for a single .ql file or for every .ql file in ./examples while collecting per-file results.
+ *
+ * @returns `0` on success, non-zero on failure.
+ */
 int main(int argc, char **argv) {
   NOB_GO_REBUILD_URSELF(argc, argv);
 
