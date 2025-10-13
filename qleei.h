@@ -1127,8 +1127,8 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
       qleei_alist_pop(stack, &val_item);
       if (!qleei_action_expects_value_kind(t.loc, sv, val_item.kind, QLEEI_VALUE_KIND_NUMBER)) return false;
 
-      qleei_uisz_t *ptr = (qleei_uisz_t*)ptr_item.as_pointer.value;
-      qleei_uisz_t  val =  (qleei_uisz_t)val_item.as_number.value;
+      qleei_si8_t *ptr = (qleei_si8_t*)ptr_item.as_pointer.value;
+      qleei_si8_t  val =  (qleei_si8_t)val_item.as_number.value;
 
       *ptr = val;
       return true;
@@ -1153,8 +1153,8 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
 	      return false;
       }
 
-      qleei_uisz_t *ptr = (qleei_uisz_t*)ptr_item.as_pointer.value;
-      qleei_uisz_t  val = (qleei_uisz_t)val_item.as_number.value;
+      qleei_ui8_t *ptr = (qleei_ui8_t*)ptr_item.as_pointer.value;
+      qleei_ui8_t  val = (qleei_ui8_t)val_item.as_number.value;
 
       *ptr = val;
       return true;
@@ -1166,22 +1166,24 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
       Qleei_Value_Item item;
       qleei_alist_pop(stack, &item);
       if (!qleei_action_expects_value_kind(t.loc, sv, item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
-      char *ptr = item.as_pointer.value;
-      unsigned char val = (unsigned char)*ptr;
+      qleei_ui8_t *ptr = (qleei_ui8_t*)item.as_pointer.value;
+      qleei_ui8_t val = *ptr;
       item.as_number.kind  = QLEEI_VALUE_KIND_NUMBER;
       item.as_number.value = (double)val;
       qleei_alist_append(stack, &item);
       return true;
     }
 
-    // [ptr, ui32] -> -
+    // [ptr, ui32] -> []
     if (qleei_sv_eq_zstr(sv, "mem_save_ui32")) {
       if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
       Qleei_Value_Item ptr_item, val_item;
+      qleei_alist_pop(stack, &ptr_item);
+      qleei_alist_pop(stack, &val_item);
       if (!qleei_action_expects_value_kind(t.loc, sv, ptr_item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
       if (!qleei_action_expects_value_kind(t.loc, sv, val_item.kind, QLEEI_VALUE_KIND_NUMBER)) return false;
-      qleei_uisz_t *ptr = (qleei_uisz_t*)ptr_item.as_pointer.value;
-      qleei_uisz_t  val = (qleei_uisz_t)val_item.as_number.value;
+      qleei_ui32_t *ptr = (qleei_ui32_t*)ptr_item.as_pointer.value;
+      qleei_ui32_t  val = (qleei_ui32_t)val_item.as_number.value;
       *ptr = val;
       return true;
     }
@@ -1191,7 +1193,7 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
       if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
       Qleei_Value_Item item;
       if (!qleei_action_expects_value_kind(t.loc, sv, item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
-      qleei_uisz_t val = *(qleei_uisz_t*)item.as_pointer.value;
+      qleei_ui32_t val = *(qleei_ui32_t*)item.as_pointer.value;
       item.as_number.kind  = QLEEI_VALUE_KIND_NUMBER;
       item.as_number.value = val;
       qleei_alist_append(stack, &item);
