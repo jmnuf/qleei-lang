@@ -53,91 +53,21 @@ bool qleei_zstr_eq(const char *za, const char *zb);
 double qleei_parse_number(Qleei_String_View sv);
 
 
-#define qleei_alist_reserve(alist, count)                            \
-do {                                                                 \
-  qleei_uisz_t ncap = (alist)->cap == 0 ? 256 : ((alist)->cap*2);    \
-  while (ncap < count) ncap *= 2;                                    \
-  qleei_uisz_t bytes = ncap*sizeof(*(alist)->items);                 \
-  (alist)->items = qleei_mem_realloc((alist)->items, bytes);         \
-  (alist)->cap = ncap;                                               \
-} while(0)
 
-#define qleei_alist_append(alist, item)                              \
-do {                                                                 \
-  qleei_alist_reserve(alist, (alist)->len + 1);                      \
-  (alist)->items[(alist)->len++] = item;                             \
-} while (0)
+bool  qleei_list_reserve(void **items, qleei_uisz_t item_size, qleei_uisz_t *current_capacity, qleei_uisz_t desired_capacity);
+bool  qleei_list_append(void **items, qleei_uisz_t item_size, qleei_uisz_t *capacity, qleei_uisz_t *length, void *item);
+void* qleei_list_last(void *items, qleei_uisz_t item_size, qleei_uisz_t length);
+bool  qleei_list_pop(void *items, qleei_uisz_t item_size, qleei_uisz_t *length, void *popped_item);
+bool  qleei_list_swap(void *items, qleei_uisz_t item_size, qleei_uisz_t i, qleei_uisz_t j, qleei_uisz_t length);
+void  qleei_list_free(void **items, qleei_uisz_t *capacity, qleei_uisz_t *length);
 
-#define qleei_define_list_reserve(T_Item, T_List)                    \
-bool T_List ## _reserve(T_List *list, qleei_uisz_t count) {          \
-  if (list->cap >= count) return true;                               \
-  qleei_uisz_t ncap = list->cap == 0 ? 256 : (list->cap*2);          \
-  while (ncap < count) ncap = ncap * 2;                              \
-  qleei_uisz_t bytes = sizeof(T_Item)*ncap;                          \
-  T_Item *ptr = (T_Item*)qleei_mem_realloc(list->items, bytes);      \
-  if (ptr == NULL) return false;                                     \
-  list->items = ptr;                                                 \
-  list->cap = ncap;                                                  \
-  return true;                                                       \
-}
-
-#define qleei_define_list_append(T_Item, T_List)                     \
-bool T_List ## _append (T_List *list, T_Item item) {                 \
-  if (!T_List ## _reserve(list, list->len+1)) return false;          \
-  list->items[list->len] = item;                                     \
-  list->len++;                                                       \
-  return true;                                                       \
-}
-
-#define qleei_define_list_last(T_Item, T_List)                       \
-T_Item * T_List ## _last (T_List *list) {                            \
-  if (list->len == 0) return NULL;                                   \
-  return list->items + (list->len - 1);                              \
-}
-
-#define qleei_define_list_pop(T_Item, T_List)                        \
-bool T_List ## _pop (T_List *list, T_Item *out) {                    \
-  if (list->len == 0) return false;                                  \
-  T_Item item = list->items[--list->len];                            \
-  if (out) *out = item;                                              \
-  return true;                                                       \
-}
-
-#define qleei_define_list_swap(T_Item, T_List)                       \
-bool T_List ## _swap(T_List *list, qleei_uisz_t i, qleei_uisz_t j) { \
-  if (i > list->len || j > list->len) return false;                  \
-  T_Item t = list->items[i];                                         \
-  list->items[i] = list->items[j];                                   \
-  list->items[j] = t;                                                \
-  return true;                                                       \
-}
-
-#define qleei_define_list_clear(T_List)                              \
-void T_List ## _clear(T_List *list) {                                \
-  list->len = 0;                                                     \
-}
-
-#define qleei_define_list_free(T_List)                               \
-void T_List ## _free(T_List *list) {                                 \
-  if (list->items != NULL) {                                         \
-    qleei_mem_free(list->items);                                     \
-  }                                                                  \
-  list->items = NULL;                                                \
-  list->len = 0;                                                     \
-  list->cap = 0;                                                     \
-}
-
-#define qleei_define_list_methods(T_Item, T_List)  \
-qleei_define_list_reserve(T_Item, T_List)          \
-qleei_define_list_append(T_Item, T_List)           \
-qleei_define_list_pop(T_Item, T_List)              \
-qleei_define_list_last(T_Item, T_List)             \
-qleei_define_list_swap(T_Item, T_List)             \
-qleei_define_list_clear(T_List)                    \
-qleei_define_list_free(T_List)
-
-
-#define qleei_list_foreach(T, it, list) for (T *it = (list)->items; it < (list)->items + (list)->len; ++it)
+#define qleei_alist_reserve(alist, count) qleei_list_reserve((void**)&(alist)->items, sizeof(*(alist)->items), &(alist)->cap, count)
+#define qleei_alist_append(alist, item)   qleei_list_append((void**)&(alist)->items, sizeof(*(alist)->items), &(alist)->cap, &(alist)->len, item)
+#define qleei_alist_last(alist, T)        (T*)qleei_list_last((alist)->items, sizeof(*(alist)->items), (alist)->len)
+#define qleei_alist_pop(alist, out)       qleei_list_pop((alist)->items, sizeof(*(alist)->items), &(alist)->len, out)
+#define qleei_alist_swap(alist, i, j)     qleei_list_swap((alist)->items, sizeof(*(alist)->items), i, j, (alist)->len)
+#define qleei_alist_free(alist)           qleei_list_free((void**)&(alist)->items, &(alist)->cap, &(alist)->len)
+#define qleei_alist_foreach(T, it, list)  for (T *it = (list)->items; it < (list)->items + (list)->len; ++it)
 
 void *qleei_mem_alloc   (qleei_uisz_t size);
 void *qleei_mem_realloc (void *ptr, qleei_uisz_t size);
@@ -251,6 +181,75 @@ bool qleei_zstr_eq(const char *za, const char *zb) {
   }
   return true;
 #endif // PLATFORM_DESKTOP
+}
+
+bool qleei_list_reserve(void **items, qleei_uisz_t item_size, qleei_uisz_t *current_capacity, qleei_uisz_t desired_capacity) {
+  qleei_uisz_t n = *current_capacity;
+  if (desired_capacity <= n) return true;
+
+  if (n == 0) n = 256;
+  while (desired_capacity > n) n *= 2;
+
+  void *new_ptr = qleei_mem_realloc(*items, n*item_size);
+  if (new_ptr == 0) return false;
+
+  *items = new_ptr;
+  *current_capacity = n;
+  return true;
+}
+
+bool qleei_list_append(void **items, qleei_uisz_t item_size, qleei_uisz_t *capacity, qleei_uisz_t *length, void *item) {
+  qleei_uisz_t len = *length;
+  if (!qleei_list_reserve(items, item_size, capacity, len + 1)) return false;
+  char *bytes = (char*)*items;
+  qleei_mem_copy(bytes + (len*item_size), item, item_size);
+  *length = len + 1;
+  return true;
+}
+
+void* qleei_list_last(void *items, qleei_uisz_t item_size, qleei_uisz_t length) {
+  if (length == 0) return NULL;
+  char *bytes = (char*)items;
+  qleei_uisz_t offset = (length - 1) * item_size;
+  return (void*)(bytes + offset);
+}
+
+bool qleei_list_pop(void *items, qleei_uisz_t item_size, qleei_uisz_t *length, void *popped_item) {
+  qleei_uisz_t len = *length;
+  if (len == 0) return false;
+  len--;
+  if (popped_item) {
+    char *bytes = (char*)items;
+    char *item  = bytes + (len * item_size);
+    qleei_mem_copy(popped_item, item, item_size);
+  }
+  *length = len;
+  return true;
+}
+
+bool qleei_list_swap(void *items, qleei_uisz_t item_size, qleei_uisz_t i, qleei_uisz_t j, qleei_uisz_t length) {
+  if (items == NULL) return false;
+  if (i >= length || j >= length) return false;
+
+  if (i == j) return true;
+
+  char *bytes = (char*)items;
+  char  item_t[item_size];
+  char *item_i = bytes + (i * item_size);
+  char *item_j = bytes + (j * item_size);
+  qleei_mem_copy(item_t, item_i, item_size);
+  qleei_mem_copy(item_i, item_j, item_size);
+  qleei_mem_copy(item_j, item_t, item_size);
+  return true;
+}
+
+void qleei_list_free(void **items, qleei_uisz_t *capacity, qleei_uisz_t *length) {
+  if (*items != NULL) {
+    qleei_mem_free(*items);
+    *items = NULL;
+  }
+  *capacity = 0;
+  *length = 0;
 }
 
 void *qleei_temp_alloc(qleei_uisz_t bytes_count) {
