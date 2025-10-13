@@ -483,6 +483,10 @@ void qleei_list_free(void **items, qleei_uisz_t *capacity, qleei_uisz_t *length)
   *length = 0;
 }
 
+bool qleei_stack_push(Qleei_Stack *stack, Qleei_Value_Item item) {
+  return qleei_alist_append(stack, &item);
+}
+
 /**
  * Check whether a character is ASCII whitespace used by the lexer.
  *
@@ -992,6 +996,11 @@ bool qleei_execute_while(Qleei_Interpreter *it, bool inside_of_proc) {
       }
       qleei_lexer_restore_point(l, start_point);
       continue;
+    }
+
+    if (t.kind == QLEEI_TOKEN_KIND_EOF) {
+      qleei_loc_printfn(start_point, "[ERROR] Unterminated while loop hit: missing 'end' at the end of the loop's body");
+      return false;
     }
 
     if (!qleei_execute_token(it, inside_of_proc, t)) return false;
@@ -1658,6 +1667,11 @@ bool qleei_execute_proc(Qleei_Interpreter *it, Qleei_Proc *proc) {
   bool ok = true;
   while ((ok = qleei_lexer_next(l))) {
     if (qleei_sv_eq_zstr(l->token.string, "end")) break;
+    if (l->token.kind == QLEEI_TOKEN_KIND_EOF) {
+      qleei_loc_printfn(save_point, "[ERROR] Unterminated procedure: Missing 'end' at end of the procedure's body");
+      ok = false;
+      break;
+    }
     if (!qleei_execute_token(it, true, l->token)) return false;
   }
 
