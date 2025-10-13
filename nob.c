@@ -1,3 +1,5 @@
+#define NOB_FREE(ptr) do { if (ptr) free(ptr); ptr = NULL; } while (0)
+
 #define NOB_IMPLEMENTATION
 #define NOB_STRIP_PREFIX
 #include "nob.h"
@@ -6,7 +8,7 @@
 
 #define streq(a, b) (strcmp(a, b) == 0)
 
-typedef struct {
+typedef struct { // Lifetime of the key property is expected to outlive the struct
   const char *key;
   bool ok;
 } Map_Result_Item;
@@ -25,6 +27,7 @@ Map_Result_Item *Map_find_key(Map *m, const char *key) {
   return NULL;
 }
 
+// key should be garantueed to outlive the map
 void Map_set_key(Map *m, const char *key, bool ok) {
   Map_Result_Item *existing = Map_find_key(m, key);
   if (existing) {
@@ -107,7 +110,11 @@ bool build_unit(Cmd *cmd, Unit *u) {
       }
       cmd_append(cmd, *input_path);
     }
-    if (count == cmd->count && u->count > 0) cmd_append(cmd, u->items[0]);
+    if (count == cmd->count) {
+      nob_log(ERROR, "Unit %s cannot be built cause all its inputs are header files!", u->output_path);
+      unit_clear(u);
+      return false;
+    }
 
     result = cmd_run(cmd);
   }
@@ -269,6 +276,7 @@ int main(int argc, char **argv) {
         printf(" - %s\n", pair->key);
       }
       printf("==================================================\n");
+      if (m.items) da_free(&m);
       if (!ok) return 1;
     } else {
       cmd_append(&cmd, native_output);
