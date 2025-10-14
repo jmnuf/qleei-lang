@@ -199,11 +199,21 @@ typedef struct {
 Qleei_Proc *qleei_procs_find_by_sv_name(Qleei_Procs *haystack, Qleei_String_View needle);
 
 
-typedef bool (*Qleei_Word_Handler)(QLeei_Token token, Qleei_Stack *stack, Qleei_Procs *procs, bool inside_proc);
+typedef struct {
+  void *user_data;
+  Qleei_Stack *stack;
+  Qleei_Procs *procs;
+  QLeei_Token token;
+  bool inside_proc;
+} Qleei_Word_Handler_Opt;
+typedef bool (*Qleei_Word_Handler)(Qleei_Word_Handler_Opt opt);
 
 typedef struct {
   const char *key;
-  Qleei_Word_Handler val;
+  struct {
+    Qleei_Word_Handler handler;
+    void *user_data;
+  } val;
 } Qleei_Word_Registry_Item;
 
 typedef struct {
@@ -213,7 +223,7 @@ typedef struct {
 } Qleei_Word_Registry_Map;
 
 Qleei_Word_Registry_Item *qleei_word_registry_get_word(Qleei_Word_Registry_Map *map, const char *word);
-bool qleei_word_registry_set_word(Qleei_Word_Registry_Map *map, const char *word, Qleei_Word_Handler handler);
+bool qleei_word_registry_set_word(Qleei_Word_Registry_Map *map, const char *word, Qleei_Word_Handler handler, void *user_data);
 bool qleei_word_registry_del_word(Qleei_Word_Registry_Map *map, const char *word);
 
 typedef struct {
@@ -226,6 +236,7 @@ typedef struct {
 
 void qleei_interpreter_lexer_init(Qleei_Interpreter *it, const char *input_path, const char *buffer, qleei_uisz_t buf_size);
 bool qleei_interpreter_register_word(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler);
+bool qleei_interpreter_register_word_with_data(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler, void *user_data);
 bool qleei_interpreter_unregister_word(Qleei_Interpreter *it, const char *word);
 
 bool qleei_interpreter_step(Qleei_Interpreter *it);
@@ -665,15 +676,16 @@ Qleei_Word_Registry_Item *qleei_word_registry_get_word(Qleei_Word_Registry_Map *
  * @param word The word for whose handler we want to set.
  * @returns bool indicating whether the word was added/updated succesfully
  */
-bool qleei_word_registry_set_word(Qleei_Word_Registry_Map *map, const char *word, Qleei_Word_Handler handler) {
+bool qleei_word_registry_set_word(Qleei_Word_Registry_Map *map, const char *word, Qleei_Word_Handler handler, void *user_data) {
   Qleei_Word_Registry_Item *existing = qleei_word_registry_get_word(map, word);
   if (existing != NULL) {
-    existing->val = handler;
+    existing->val.handler = handler;
+    existing->val.user_data = user_data;
     return true;
   }
   Qleei_Word_Registry_Item item = {
     .key = word,
-    .val = handler,
+    .val = { .handler = handler, .user_data = user_data },
   };
   if (!qleei_alist_append(map, &item)) return false;
   return true;
@@ -1589,7 +1601,14 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
       word[t.string.len] = 0;
       Qleei_Word_Registry_Item *item = qleei_word_registry_get_word(&it->words, word);
       if (item != NULL) {
-        if (!item->val(t, stack, &it->procs, inside_of_proc)) return false;
+        Qleei_Word_Handler_Opt handler_opt = {
+          .token = t,
+          .stack = stack,
+          .procs = &it->procs,
+          .inside_proc = inside_of_proc,
+          .user_data = item->val.user_data,
+        };
+        if (!item->val.handler(handler_opt)) return false;
         return true;
       }
     }
@@ -1830,7 +1849,22 @@ void qleei_interpreter_lexer_init(Qleei_Interpreter *it, const char *input_path,
  * @returns `true` if the word is added/updated correctly, `false` otherwise.
  */
 bool qleei_interpreter_register_word(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler) {
-  return qleei_word_registry_set_word(&it->words, word, handler);
+  return qleei_word_registry_set_word(&it->words, word, handler, NULL);
+}
+
+/**
+ * Add a word to the registry of words of the interpreter.
+ * The lifetime of the word string is expected to outlive the interpreter words registry.
+ * Added words do not override base words like swap2, rot2, mem_save_*, etc.
+ *
+ * @param it Interpreter instance for which to register a word for.
+ * @param word Word that's being added to the registry. Should outlive its usage.
+ * @param handler The function to call when this word is hit.
+ * @param user_data Extra data to pass to handler when it is called.
+ * @returns `true` if the word is added/updated correctly, `false` otherwise.
+ */
+bool qleei_interpreter_register_word_with_data(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler, void *user_data) {
+  return qleei_word_registry_set_word(&it->words, word, handler, user_data);
 }
 
 /**
