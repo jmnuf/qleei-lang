@@ -49,6 +49,7 @@ bool qleei_sv_eq_sv(Qleei_String_View sv_a, Qleei_String_View sv_b);
 
 qleei_uisz_t qleei_zstr_len(const char *zstr);
 bool qleei_zstr_eq(const char *za, const char *zb);
+char *qleei_zstr_dup(const char *zstr);
 
 double qleei_parse_number(Qleei_String_View sv);
 
@@ -140,7 +141,7 @@ const char *qleei_get_value_kind_name(Qleei_Value_Kind kind);
 
 typedef union {
   Qleei_Value_Kind kind;
-  
+
   struct {
     Qleei_Value_Kind kind;
     double value;
@@ -168,6 +169,7 @@ typedef struct {
 
 void qleei_print_stack(Qleei_Stack *s);
 bool qleei_stack_push(Qleei_Stack *stack, Qleei_Value_Item item);
+bool qleei_stack_pop(Qleei_Stack *stack, Qleei_Value_Item *item);
 
 typedef struct {
   QLeei_Lex_Location body_start;
@@ -197,7 +199,7 @@ typedef struct {
 Qleei_Proc *qleei_procs_find_by_sv_name(Qleei_Procs *haystack, Qleei_String_View needle);
 
 
-typedef bool (*Qleei_Word_Handler)(QLeei_Lex_Location loc, Qleei_Stack *stack, Qleei_Procs *procs, bool inside_proc);
+typedef bool (*Qleei_Word_Handler)(QLeei_Token token, Qleei_Stack *stack, Qleei_Procs *procs, bool inside_proc);
 
 typedef struct {
   const char *key;
@@ -222,8 +224,11 @@ typedef struct {
   bool   done;
 } Qleei_Interpreter;
 
-bool qleei_interpreter_step(Qleei_Interpreter *it);
 void qleei_interpreter_lexer_init(Qleei_Interpreter *it, const char *input_path, const char *buffer, qleei_uisz_t buf_size);
+bool qleei_interpreter_register_word(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler);
+bool qleei_interpreter_unregister_word(Qleei_Interpreter *it, const char *word);
+
+bool qleei_interpreter_step(Qleei_Interpreter *it);
 bool qleei_interpreter_exec(Qleei_Interpreter *it);
 
 bool qleei_interpret_buffer(const char *buffer_source_path, const char *buffer, qleei_uisz_t buf_size);
@@ -368,6 +373,18 @@ bool qleei_zstr_eq(const char *za, const char *zb) {
 #endif // PLATFORM_DESKTOP
 }
 
+char *qleei_zstr_dup(const char *zstr) {
+#ifdef PLATFORM_DESKTOP
+  return strdup(zstr);
+#else
+  qleei_uisz_t len = qleei_zstr_len(zstr);
+  char *dup = qleei_mem_alloc(len);
+  qleei_mem_copy(dup, zstr, len);
+  dup[len] = 0;
+  return dup;
+#endif // PLATFORM_DESKTOP
+}
+
 /**
  * Ensure a generic dynamic array has capacity for at least `desired_capacity` items by growing (doubling) the allocation as needed.
  * @param items Pointer to the array pointer; updated to point to the reallocated memory on growth.
@@ -402,7 +419,7 @@ bool qleei_list_reserve(void **items, qleei_uisz_t item_size, qleei_uisz_t *curr
  * @param capacity Pointer to the current capacity (in items); updated if the buffer grows.
  * @param length Pointer to the current number of items; incremented on success.
  * @param item Pointer to the source bytes to append.
- * @return `true` if the item was appended successfully, `false` if the buffer could not be grown. 
+ * @return `true` if the item was appended successfully, `false` if the buffer could not be grown.
  */
 bool qleei_list_append(void **items, qleei_uisz_t item_size, qleei_uisz_t *capacity, qleei_uisz_t *length, void *item) {
   qleei_uisz_t len = *length;
@@ -503,6 +520,10 @@ bool qleei_stack_push(Qleei_Stack *stack, Qleei_Value_Item item) {
   return qleei_alist_append(stack, &item);
 }
 
+bool qleei_stack_pop(Qleei_Stack *stack, Qleei_Value_Item *item) {
+  return qleei_alist_pop(stack, item);
+}
+
 /**
  * Check whether a character is ASCII whitespace used by the lexer.
  *
@@ -533,21 +554,21 @@ static inline bool qleei_is_alphabetic_char(char c) {
 }
 
 /**
- * Determine if a character is valid as the first character of an identifier (alphabetic or underscore).
+ * Determine if a character is valid as the first character of an identifier.
  * @param c Character to test.
- * @returns `true` if `c` is an alphabetic character or underscore (`_`), `false` otherwise.
+ * @returns `true` if `c` is an alphabetic character, an underscore (`_`), a numeral (`#`) or an at sign (`@`), `false` otherwise.
  */
 static inline bool qleei_is_identifier_start_char(char c) {
-  return qleei_is_alphabetic_char(c) || c == '_';
+  return qleei_is_alphabetic_char(c) || c == '_' || c == '#' || c == '@';
 }
 
 /**
  * Determine whether a character is valid inside an identifier.
  *
- * @returns `true` if `c` is a letter, underscore, or digit (i.e., a valid identifier character), `false` otherwise.
+ * @returns `true` if `c` is a letter, underscore, numeral, dash, at sign, or digit (i.e., a valid identifier character), `false` otherwise.
  */
 static inline bool qleei_is_identifier_char(char c) {
-  return qleei_is_identifier_start_char(c) || qleei_is_number_char(c);
+  return qleei_is_identifier_start_char(c) || c == '-' || qleei_is_number_char(c);
 }
 
 /**
@@ -827,7 +848,7 @@ bool qleei_lexer_next(QLeei_Lexer *lexer) {
       lexer->column++;
       return true;
     }
-    
+
     token->kind = QLEEI_TOKEN_KIND_SYMBOL;
     token->string.data = lexer->buffer + (lexer->index - 1);
     token->string.len = 1;
@@ -851,7 +872,7 @@ bool qleei_lexer_next(QLeei_Lexer *lexer) {
 	      continue;
       }
     }
-    
+
     return true;
   }
 
@@ -867,7 +888,7 @@ bool qleei_lexer_next(QLeei_Lexer *lexer) {
  *
  * @param l Lexer to peek into (not modified).
  * @param t Destination for the next token.
- * @returns `true` if the next token was retrieved into `t`, `false` if lexing failed. 
+ * @returns `true` if the next token was retrieved into `t`, `false` if lexing failed.
  */
 bool qleei_lexer_peek(QLeei_Lexer *l, QLeei_Token *t) {
   QLeei_Lexer peeker = *l;
@@ -1167,7 +1188,7 @@ bool qleei_parse_proc(Qleei_Interpreter *it) {
     return false;
   }
   if (!qleei_lexer_next(l)) return false;
-  
+
   // ==================================================
   // Parse Outputs
   // --------------------------------------------------
@@ -1562,6 +1583,17 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
       return true;
     }
 
+    {
+      char word[t.string.len+1];
+      qleei_mem_copy(word, t.string.data, t.string.len);
+      word[t.string.len] = 0;
+      Qleei_Word_Registry_Item *item = qleei_word_registry_get_word(&it->words, word);
+      if (item != NULL) {
+        if (!item->val(t, stack, &it->procs, inside_of_proc)) return false;
+        return true;
+      }
+    }
+
 
     {
       Qleei_Proc *proc = qleei_procs_find_by_sv_name(&it->procs, sv);
@@ -1603,7 +1635,7 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
       Qleei_Value_Item a, b;
       qleei_alist_pop(stack, &a);
       qleei_alist_pop(stack, &b);
-      
+
       if (a.kind == QLEEI_VALUE_KIND_POINTER && b.kind == QLEEI_VALUE_KIND_POINTER) {
 	      qleei_printfn("[ERROR] Cannot add 2 pointers together");
 	      return false;
@@ -1673,7 +1705,7 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
       Qleei_Value_Item a, b;
       qleei_alist_pop(stack, &a);
       qleei_alist_pop(stack, &b);
-      
+
       if (a.kind == QLEEI_VALUE_KIND_POINTER || b.kind == QLEEI_VALUE_KIND_POINTER) {
 	      qleei_loc_printfn(t.loc, "[ERROR] Cannot do division with pointers");
 	      return false;
@@ -1734,12 +1766,12 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
  * @param proc Procedure descriptor containing the saved body start location to execute.
  * @returns `true` if the procedure body completed successfully and the original lexer
  *          position was restored, `false` if execution failed (lexer/state remains at
- *          the failure point). 
+ *          the failure point).
  */
 bool qleei_execute_proc(Qleei_Interpreter *it, Qleei_Proc *proc) {
   QLeei_Lexer *l = &it->lexer;
   QLeei_Lex_Location save_point = qleei_lexer_save_point(l);
-  
+
   qleei_lexer_restore_point(l, proc->body_start);
 
   bool ok = true;
@@ -1774,9 +1806,9 @@ bool qleei_interpreter_step(Qleei_Interpreter *it) {
 
 /**
  * Initialize the interpreter's lexer for a new input buffer and reset the execution stack.
- * 
+ *
  * Initializes the embedded lexer with the provided input path and buffer, and clears the interpreter's stack length so execution starts with an empty stack.
- * 
+ *
  * @param it Interpreter instance to initialize.
  * @param input_path File path or identifier associated with the input buffer (used for location reporting).
  * @param buffer Pointer to the input character buffer to be lexed.
@@ -1785,6 +1817,31 @@ bool qleei_interpreter_step(Qleei_Interpreter *it) {
 void qleei_interpreter_lexer_init(Qleei_Interpreter *it, const char *input_path, const char *buffer, qleei_uisz_t buf_size) {
   qleei_lexer_init(&it->lexer, input_path, buffer, buf_size);
   it->stack.len = 0;
+}
+
+/**
+ * Add a word to the registry of words of the interpreter.
+ * The lifetime of the word string is expected to outlive the interpreter words registry.
+ * Added words do not override base words like swap2, rot2, mem_save_*, etc.
+ *
+ * @param it Interpreter instance for which to register a word for.
+ * @param word Word that's being added to the registry. Should outlive its usage.
+ * @param handler The function to call when this word is hit.
+ * @returns `true` if the word is added/updated correctly, `false` otherwise.
+ */
+bool qleei_interpreter_register_word(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler) {
+  return qleei_word_registry_set_word(&it->words, word, handler);
+}
+
+/**
+ * Remove a word from the registry of words of the interpreter.
+ *
+ * @param it Interpreter instance from which to unregister a word for.
+ * @param word Word that's being removed from the registry.
+ * @returns `true` if the word is properly removed from the registry.
+ */
+bool qleei_interpreter_unregister_word(Qleei_Interpreter *it, const char *word) {
+  return qleei_word_registry_del_word(&it->words, word);
 }
 
 /**
@@ -1899,7 +1956,7 @@ void *qleei_mem_realloc(void *ptr, qleei_uisz_t size) {
 
 /**
  * Free memory previously allocated through qleei's allocator.
- * 
+ *
  * @param ptr Pointer to the block to free. If `ptr` is NULL no action is taken.
  */
 void qleei_mem_free(void * ptr) {
@@ -1989,7 +2046,7 @@ void qleei_mem_free(void *ptr) {
 
 /**
  * Copy `count` bytes from `src` to `dest`.
- * 
+ *
  * @param dest Destination buffer where bytes will be written. Must be large enough to hold `count` bytes.
  * @param src Source buffer to copy bytes from.
  * @param count Number of bytes to copy.
