@@ -90,7 +90,6 @@ typedef struct {
 #define qleei_loc_printfn(loc, ...) \
 do { qleei_printf("%s:%zu:%zu: ", (loc).file_path, (loc).line, (loc).column); qleei_printfn(__VA_ARGS__); } while (0)
 
-
 typedef enum {
   QLEEI_TOKEN_KIND_NONE = 0,
   QLEEI_TOKEN_KIND_EOF,
@@ -198,9 +197,27 @@ typedef struct {
 Qleei_Proc *qleei_procs_find_by_sv_name(Qleei_Procs *haystack, Qleei_String_View needle);
 
 
+typedef bool (*Qleei_Word_Handler)(QLeei_Lex_Location loc, Qleei_Stack *stack, Qleei_Procs *procs, bool inside_proc);
+
+typedef struct {
+  const char *key;
+  Qleei_Word_Handler val;
+} Qleei_Word_Registry_Item;
+
+typedef struct {
+  Qleei_Word_Registry_Item *items;
+  qleei_uisz_t len;
+  qleei_uisz_t cap;
+} Qleei_Word_Registry_Map;
+
+Qleei_Word_Registry_Item *qleei_word_registry_get_word(Qleei_Word_Registry_Map *map, const char *word);
+bool qleei_word_registry_set_word(Qleei_Word_Registry_Map *map, const char *word, Qleei_Word_Handler handler);
+bool qleei_word_registry_del_word(Qleei_Word_Registry_Map *map, const char *word);
+
 typedef struct {
   QLeei_Lexer  lexer;
   Qleei_Stack  stack;
+  Qleei_Word_Registry_Map words;
   Qleei_Procs  procs;
   bool   done;
 } Qleei_Interpreter;
@@ -603,6 +620,68 @@ Qleei_Proc *qleei_procs_find_by_sv_name(Qleei_Procs *haystack, Qleei_String_View
   }
   return NULL;
 }
+
+
+/*
+ * Find a word handler in a registry of words with handlers.
+ *
+ * @param map Registry of words to search through.
+ * @param word The word for whose handler we are looking forl
+ * @returns Pointer to the matching Qleei_Word_Registry_Item if found, NULL otherwise.
+ */
+Qleei_Word_Registry_Item *qleei_word_registry_get_word(Qleei_Word_Registry_Map *map, const char *word) {
+  qleei_alist_foreach(Qleei_Word_Registry_Item, pair, map) {
+    if (qleei_zstr_eq(pair->key, word)) return pair;
+  }
+  return NULL;
+}
+
+
+/*
+ * Add a word to a registry or update an existing word's handler if it's already in the registry.
+ *
+ * @param map Registry of words onto which to add/update word.
+ * @param word The word for whose handler we want to set.
+ * @returns bool indicating whether the word was added/updated succesfully
+ */
+bool qleei_word_registry_set_word(Qleei_Word_Registry_Map *map, const char *word, Qleei_Word_Handler handler) {
+  Qleei_Word_Registry_Item *existing = qleei_word_registry_get_word(map, word);
+  if (existing != NULL) {
+    existing->val = handler;
+    return true;
+  }
+  Qleei_Word_Registry_Item item = {
+    .key = word,
+    .val = handler,
+  };
+  if (!qleei_alist_append(map, &item)) return false;
+  return true;
+}
+
+/*
+ * Removes a word from a word registry. Returning whether the item was removed.
+ *
+ * @param map Registry of words from which to remove a word from.
+ * @param word The word wanting to remove from the registry.
+ * @returns bool indicating whether the word was removed from the registry
+ */
+bool qleei_word_registry_del_word(Qleei_Word_Registry_Map *map, const char *word) {
+  if (map == NULL || word == NULL) return false;
+  bool found = false;
+
+  for (qleei_uisz_t i = map->len; i > 0; --i) {
+    Qleei_Word_Registry_Item item = map->items[i - 1];
+    if (qleei_zstr_eq(item.key, word)) {
+      found = true;
+      if (i < map->len) map->items[map->len - 1] = map->items[i - 1];
+      map->len--;
+      break;
+    }
+  }
+
+  return found;
+}
+
 
 /**
  * Initialize a lexer with the provided input buffer and path.
