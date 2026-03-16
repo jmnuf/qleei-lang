@@ -3,7 +3,7 @@
 QLeei is a simple interpreted stack based language written for experimental purposes.
 This is not meant to be a serious language in any way.
 
-This language tries to do as little "parsing" as possible so it runs the code as it sees it.
+The language is handled in a a single pass, so it attempts to have no AST and execute things as soon as it sees them.
 
 Try it out at the [online playground](https://jmnuf.github.io/qleei-lang/playground/)
 
@@ -76,8 +76,7 @@ end
 
 ## User Procedures
 
-You can define your own procedures in QLeei by using the `proc` keyword. 
-Fun fact, currently this is the only thing that requires "parsing" in the language!
+You can define your own procedures in QLeei by using the `proc` keyword.
 
 When defining a procedure you must define an expected input types and supposed output types. The input is type checked at RUNTIME!
 Output types are not type checked at all, they are there to make you feel better about yourself.
