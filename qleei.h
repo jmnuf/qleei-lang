@@ -385,11 +385,13 @@ bool qleei_zstr_eq(const char *za, const char *zb) {
 }
 
 char *qleei_zstr_dup(const char *zstr) {
+  if (zstr == NULL) return NULL;
 #ifdef PLATFORM_DESKTOP
   return strdup(zstr);
 #else
   qleei_uisz_t len = qleei_zstr_len(zstr);
-  char *dup = qleei_mem_alloc(len);
+  char *dup = qleei_mem_alloc(len + 1);
+  if (dup == NULL) return NULL;
   qleei_mem_copy(dup, zstr, len);
   dup[len] = 0;
   return dup;
