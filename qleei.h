@@ -627,13 +627,6 @@ void qleei_printfn(const char *fmt, ...);
 
 #ifdef QLEEI_IMPLEMENTATION
 
-/**
- * Create a Qleei_String_View that references a null-terminated C string.
- *
- * @param zstr Null-terminated C string to view. May be NULL.
- * @returns A Qleei_String_View whose `data` points to `zstr` and whose `len` is the number of bytes
- *          before the terminating NUL character. The view does not allocate or copy the string data.
- */
 Qleei_String_View qleei_sv_from_zstr(const char *zstr) {
   Qleei_String_View sv = {0};
   sv.data = zstr;
@@ -642,13 +635,6 @@ Qleei_String_View qleei_sv_from_zstr(const char *zstr) {
   return sv;
 }
 
-/**
- * Determine whether a string view ends with a given suffix.
- *
- * @param sv String view to inspect.
- * @param suffix Suffix string view to check for.
- * @returns `true` if `sv` ends with `suffix`, `false` otherwise.
- */
 bool qleei_sv_has_suffix(Qleei_String_View sv, Qleei_String_View suffix) {
   if (sv.len < suffix.len) return false;
   for (qleei_uisz_t i = 0; i < suffix.len; ++i) {
@@ -659,13 +645,6 @@ bool qleei_sv_has_suffix(Qleei_String_View sv, Qleei_String_View suffix) {
   return true;
 }
 
-/**
- * Check whether a string view begins with a given prefix.
- *
- * @param sv The string view to test.
- * @param prefix The prefix to check for at the start of `sv`.
- * @returns `true` if `sv` begins with `prefix`, `false` otherwise.
- */
 bool qleei_sv_has_prefix(Qleei_String_View sv, Qleei_String_View prefix) {
   if (sv.len < prefix.len) return false;
   for (qleei_uisz_t i = 0; i < prefix.len; ++i) {
@@ -676,12 +655,6 @@ bool qleei_sv_has_prefix(Qleei_String_View sv, Qleei_String_View prefix) {
   return true;
 }
 
-/**
- * Compare a string view to a null-terminated C string for exact equality.
- * @param sv String view to compare.
- * @param zstr Null-terminated C string to compare against.
- * @returns `true` if `sv` and `zstr` have the same length and identical characters, `false` otherwise.
- */
 bool qleei_sv_eq_zstr(Qleei_String_View sv, const char *zstr) {
   qleei_uisz_t zstr_sz = qleei_zstr_len(zstr);
   if (sv.len != zstr_sz) return false;
@@ -693,11 +666,6 @@ bool qleei_sv_eq_zstr(Qleei_String_View sv, const char *zstr) {
   return true;
 }
 
-/**
- * Determine whether two string views contain exactly the same bytes.
- *
- * @returns `true` if both `sv_a` and `sv_b` have the same length and identical byte-for-byte contents, `false` otherwise.
- */
 bool qleei_sv_eq_sv(Qleei_String_View sv_a, Qleei_String_View sv_b) {
   if (sv_a.len != sv_b.len) return false;
   for (qleei_uisz_t i = 0; i < sv_a.len; ++i) {
@@ -708,13 +676,6 @@ bool qleei_sv_eq_sv(Qleei_String_View sv_a, Qleei_String_View sv_b) {
   return true;
 }
 
-/**
- * Compare two null-terminated C strings for equality.
- *
- * @param za First null-terminated string to compare.
- * @param zb Second null-terminated string to compare.
- * @returns `true` if the strings contain the same characters and length, `false` otherwise.
- */
 bool qleei_zstr_eq(const char *za, const char *zb) {
 #ifdef PLATFORM_DESKTOP
   return strcmp(za, zb) == 0;
@@ -742,14 +703,6 @@ char *qleei_zstr_dup(const char *zstr) {
 #endif // PLATFORM_DESKTOP
 }
 
-/**
- * Ensure a generic dynamic array has capacity for at least `desired_capacity` items by growing (doubling) the allocation as needed.
- * @param items Pointer to the array pointer; updated to point to the reallocated memory on growth.
- * @param item_size Size in bytes of a single item in the array.
- * @param current_capacity Pointer to the current capacity (in number of items); updated to the new capacity on growth.
- * @param desired_capacity Minimum required capacity (in number of items).
- * @returns `true` if the array has capacity for at least `desired_capacity` items after the call, `false` if memory allocation failed.
- */
 bool qleei_list_reserve(void **items, qleei_uisz_t item_size, qleei_uisz_t *current_capacity, qleei_uisz_t desired_capacity) {
   qleei_uisz_t n = *current_capacity;
   if (desired_capacity <= n) return true;
@@ -765,19 +718,6 @@ bool qleei_list_reserve(void **items, qleei_uisz_t item_size, qleei_uisz_t *curr
   return true;
 }
 
-/**
- * Appends a raw item to a dynamically-sized byte array, growing the array if necessary.
- *
- * Ensures the underlying buffer has space for one more element, copies `item_size` bytes
- * from `item` into the buffer at the next position, and increments `*length`.
- *
- * @param items Pointer to the array buffer pointer; may be reallocated and updated.
- * @param item_size Size in bytes of a single item.
- * @param capacity Pointer to the current capacity (in items); updated if the buffer grows.
- * @param length Pointer to the current number of items; incremented on success.
- * @param item Pointer to the source bytes to append.
- * @return `true` if the item was appended successfully, `false` if the buffer could not be grown.
- */
 bool qleei_list_append(void **items, qleei_uisz_t item_size, qleei_uisz_t *capacity, qleei_uisz_t *length, void *item) {
   qleei_uisz_t len = *length;
   if (!qleei_list_reserve(items, item_size, capacity, len + 1)) return false;
@@ -787,13 +727,6 @@ bool qleei_list_append(void **items, qleei_uisz_t item_size, qleei_uisz_t *capac
   return true;
 }
 
-/**
- * Get a pointer to the last element in a contiguous array of items.
- * @param items Pointer to the start of the array.
- * @param item_size Size in bytes of a single element in the array.
- * @param length Number of elements currently in the array.
- * @returns Pointer to the last element, or `NULL` when `length` is zero.
- */
 void* qleei_list_last(void *items, qleei_uisz_t item_size, qleei_uisz_t length) {
   if (length == 0) return NULL;
   char *bytes = (char*)items;
@@ -801,18 +734,6 @@ void* qleei_list_last(void *items, qleei_uisz_t item_size, qleei_uisz_t length) 
   return (void*)(bytes + offset);
 }
 
-/**
- * Remove the last element from a raw array buffer.
- *
- * If the list is non-empty, copies the last element into `popped_item` (when non-NULL)
- * and decrements `*length`.
- *
- * @param items Pointer to the array buffer storing items contiguously.
- * @param item_size Size in bytes of each item stored in `items`.
- * @param length Pointer to the current number of items; updated to the new length on success.
- * @param popped_item Optional destination buffer where the popped item will be copied; may be NULL.
- * @returns `true` if an item was popped, `false` if the list was empty.
- */
 bool qleei_list_pop(void *items, qleei_uisz_t item_size, qleei_uisz_t *length, void *popped_item) {
   qleei_uisz_t len = *length;
   if (len == 0) return false;
@@ -826,21 +747,6 @@ bool qleei_list_pop(void *items, qleei_uisz_t item_size, qleei_uisz_t *length, v
   return true;
 }
 
-/**
- * Swap two elements in a contiguous array buffer.
- *
- * Swaps the element at index `i` with the element at index `j` in the buffer pointed
- * to by `items`. The buffer is treated as `length` elements of size `item_size`
- * bytes each; the swap is performed in-place.
- *
- * @param items Pointer to the contiguous array buffer containing elements to swap.
- * @param item_size Size in bytes of a single element in the buffer.
- * @param i Index of the first element to swap.
- * @param j Index of the second element to swap.
- * @param length Number of elements in the buffer.
- * @returns `true` if the swap was performed or `i == j`, `false` if `items` is NULL
- *          or either index is out of range (greater than or equal to `length`).
- */
 bool qleei_list_swap(void *items, qleei_uisz_t item_size, qleei_uisz_t i, qleei_uisz_t j, qleei_uisz_t length) {
   if (items == NULL) return false;
   if (i >= length || j >= length) return false;
@@ -857,13 +763,6 @@ bool qleei_list_swap(void *items, qleei_uisz_t item_size, qleei_uisz_t i, qleei_
   return true;
 }
 
-/**
- * Free a dynamic list buffer and reset its metadata.
- *
- * @param items Pointer to the list buffer pointer; if non-NULL the buffer is freed and `*items` is set to NULL.
- * @param capacity Pointer to the list capacity value; set to 0.
- * @param length Pointer to the list length value; set to 0.
- */
 void qleei_list_free(void **items, qleei_uisz_t *capacity, qleei_uisz_t *length) {
   if (*items != NULL) {
     qleei_mem_free(*items);
@@ -881,58 +780,26 @@ bool qleei_stack_pop(Qleei_Stack *stack, Qleei_Value_Item *item) {
   return qleei_alist_pop(stack, item);
 }
 
-/**
- * Check whether a character is ASCII whitespace used by the lexer.
- *
- * @param c Character to test.
- * @returns `true` if `c` is a tab (`'\t'`), newline (`'\n'`), carriage return (`'\r'`), or space (`' '`), `false` otherwise.
- */
 static inline bool qleei_is_space_char(char c) {
   return c == '\t' || c == '\n' || c == '\r' || c == ' ';
 }
 
-/**
- * Checks whether a character is a decimal digit.
- * @param c Character to test.
- * @returns `true` if `c` is between `'0'` and `'9'`, `false` otherwise.
- */
 static inline bool qleei_is_number_char(char c) {
   return '0' <= c && c <= '9';
 }
 
-/**
- * Check whether a character is an ASCII alphabetic letter.
- *
- * @param c Character to test.
- * @return `true` if `c` is in the range 'A'..'Z' or 'a'..'z', `false` otherwise.
- */
 static inline bool qleei_is_alphabetic_char(char c) {
   return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z');
 }
 
-/**
- * Determine if a character is valid as the first character of an identifier.
- * @param c Character to test.
- * @returns `true` if `c` is an alphabetic character, an underscore (`_`), a numeral (`#`) or an at sign (`@`), `false` otherwise.
- */
 static inline bool qleei_is_identifier_start_char(char c) {
   return qleei_is_alphabetic_char(c) || c == '_' || c == '#' || c == '@';
 }
 
-/**
- * Determine whether a character is valid inside an identifier.
- *
- * @returns `true` if `c` is a letter, underscore, numeral, dash, at sign, or digit (i.e., a valid identifier character), `false` otherwise.
- */
 static inline bool qleei_is_identifier_char(char c) {
   return qleei_is_identifier_start_char(c) || c == '-' || qleei_is_number_char(c);
 }
 
-/**
- * Get the human-readable name for a token kind.
- *
- * @return The name of the token kind as a null-terminated string. For unrecognized kinds returns "<Unknown>".
- */
 const char *qleei_get_token_kind_name(Qleei_Token_Kind kind) {
   switch(kind) {
   case QLEEI_TOKEN_KIND_NONE:
@@ -951,13 +818,6 @@ const char *qleei_get_token_kind_name(Qleei_Token_Kind kind) {
   return "<Unknown>";
 }
 
-/**
- * Get a human-readable name for a value kind.
- *
- * @param kind The value kind to describe.
- * @returns A NUL-terminated string containing one of: "number", "pointer", "bool",
- *          or "<Unknown>" if `kind` is not recognized.
- */
 const char *qleei_get_value_kind_name(Qleei_Value_Kind kind) {
   switch (kind) {
   case QLEEI_VALUE_KIND_NUMBER:
@@ -970,15 +830,6 @@ const char *qleei_get_value_kind_name(Qleei_Value_Kind kind) {
   return "<Unknown>";
 }
 
-/**
- * Append a Qleei_Value_Kind to a dynamic array, growing the array if needed.
- *
- * @param items Pointer to the array pointer storing `Qleei_Value_Kind` elements; may be realloced.
- * @param cap Pointer to the current capacity of the array; updated on reallocation.
- * @param len Pointer to the current length (number of used elements); incremented on success.
- * @param item The value kind to append.
- * @returns `true` if the item was appended successfully, `false` on allocation or other failure.
- */
 bool qleei_value_kind_list_append(Qleei_Value_Kind **items, qleei_uisz_t *cap, qleei_uisz_t *len, Qleei_Value_Kind item) {
   return qleei_list_append((void**)items, sizeof(Qleei_Value_Kind), cap, len, &item);
 }
@@ -1015,13 +866,6 @@ Qleei_Word_Registry_Item *qleei_word_registry_get_word(Qleei_Word_Registry_Map *
 }
 
 
-/*
- * Add a word to a registry or update an existing word's handler if it's already in the registry.
- *
- * @param map Registry of words onto which to add/update word.
- * @param word The word for whose handler we want to set.
- * @returns bool indicating whether the word was added/updated succesfully
- */
 bool qleei_word_registry_set_word(Qleei_Word_Registry_Map *map, const char *word, Qleei_Word_Handler handler, void *user_data) {
   Qleei_Word_Registry_Item *existing = qleei_word_registry_get_word(map, word);
   if (existing != NULL) {
@@ -1037,13 +881,6 @@ bool qleei_word_registry_set_word(Qleei_Word_Registry_Map *map, const char *word
   return true;
 }
 
-/*
- * Removes a word from a word registry. Returning whether the item was removed.
- *
- * @param map Registry of words from which to remove a word from.
- * @param word The word wanting to remove from the registry.
- * @returns bool indicating whether the word was removed from the registry
- */
 bool qleei_word_registry_del_word(Qleei_Word_Registry_Map *map, const char *word) {
   if (map == NULL || word == NULL) return false;
   bool found = false;
@@ -1062,16 +899,6 @@ bool qleei_word_registry_del_word(Qleei_Word_Registry_Map *map, const char *word
 }
 
 
-/**
- * Initialize a lexer with the provided input buffer and path.
- *
- * Sets the lexer's buffer, buffer length, and resets scanning position and token state.
- *
- * @param l Pointer to the lexer to initialize.
- * @param input_path Human-readable source path used for location reporting (may be NULL).
- * @param buffer Pointer to the input character buffer to tokenize.
- * @param buf_size Length of the input buffer in bytes.
- */
 void qleei_lexer_init(QLeei_Lexer *l, const char *input_path, const char *buffer, qleei_uisz_t buf_size) {
   l->input_path = input_path;
   l->buffer = buffer;
@@ -1082,12 +909,6 @@ void qleei_lexer_init(QLeei_Lexer *l, const char *input_path, const char *buffer
   l->token = (QLeei_Token) { .string = { .data = buffer, .len = 0 } };
 }
 
-/**
- * Advance the lexer to the next token and populate lexer->token with its kind, location, text, and numeric value when applicable.
- *
- * @param lexer Lexer state to advance; its index, line, column and token fields will be updated.
- * @returns `true` if a token (including EOF) was successfully produced and stored in `lexer->token`, `false` on a lexing error (for example when `lexer->buffer` is NULL or an unterminated/invalid character literal is encountered).
- */
 bool qleei_lexer_next(QLeei_Lexer *lexer) {
   lexer->token.loc.file_path = lexer->input_path;
   lexer->token.kind = QLEEI_TOKEN_KIND_NONE;
@@ -1238,16 +1059,6 @@ bool qleei_lexer_next(QLeei_Lexer *lexer) {
   return true;
 }
 
-/**
- * Retrieve the next token without advancing the lexer state.
- *
- * The function inspects the next token produced by the lexer `l` and writes it
- * to `t`, leaving the original lexer `l` unchanged.
- *
- * @param l Lexer to peek into (not modified).
- * @param t Destination for the next token.
- * @returns `true` if the next token was retrieved into `t`, `false` if lexing failed.
- */
 bool qleei_lexer_peek(QLeei_Lexer *l, QLeei_Token *t) {
   QLeei_Lexer peeker = *l;
   if (!qleei_lexer_next(&peeker)) return false;
@@ -1255,12 +1066,6 @@ bool qleei_lexer_peek(QLeei_Lexer *l, QLeei_Token *t) {
   return true;
 }
 
-/**
- * Capture the lexer's current location so parsing can be resumed later.
- *
- * @param l Lexer whose current position will be saved.
- * @returns A QLeei_Lex_Location containing the lexer's current file_path, index, line, and column.
- */
 QLeei_Lex_Location qleei_lexer_save_point(QLeei_Lexer *l) {
   QLeei_Lex_Location save_point = {
     .file_path = l->input_path,
@@ -1271,15 +1076,6 @@ QLeei_Lex_Location qleei_lexer_save_point(QLeei_Lexer *l) {
   return save_point;
 }
 
-/**
- * Restore the lexer's current position from a saved location.
- *
- * Sets the lexer's input_path, index, line, and column to the values in save_point.
- *
- * @param l Lexer to restore.
- * @param save_point Saved location providing file_path, index, line, and column.
- * @returns `true` if the lexer was restored (always `true`).
- */
 bool qleei_lexer_restore_point(QLeei_Lexer *l, QLeei_Lex_Location save_point) {
   l->input_path = save_point.file_path;
   l->index = save_point.index;
@@ -1289,14 +1085,6 @@ bool qleei_lexer_restore_point(QLeei_Lexer *l, QLeei_Lex_Location save_point) {
 }
 
 
-/**
- * Print the stack's contents to the configured output, displaying the top element first.
- *
- * Each item is printed in a human-readable form: Number(value) with four decimal places,
- * Bool(true/false), or Pointer(address). Corrupted or unknown kinds are shown as CorruptedValue(kind, value).
- *
- * @param s Stack whose contents will be printed.
- */
 void qleei_print_stack(Qleei_Stack *s) {
   qleei_printf("[ ");
   for (qleei_uisz_t i = 0; i < s->len; ++i) {
@@ -1321,18 +1109,6 @@ void qleei_print_stack(Qleei_Stack *s) {
   qleei_printf(" ]\n");
 }
 
-/**
- * Verify the stack contains at least `n` items and report an error if it does not.
- *
- * If the stack has fewer than `n` items, prints a location-prefixed error mentioning
- * the action named by `sv` and the required item count.
- *
- * @param loc Location used for the error message.
- * @param s Stack to validate.
- * @param sv String view naming the action that requires items on the stack.
- * @param n Required number of items.
- * @returns `true` if the stack has at least `n` items, `false` otherwise.
- */
 bool qleei_stack_operation_requires_n_items(QLeei_Lex_Location loc, Qleei_Stack *s, Qleei_String_View sv, qleei_uisz_t n) {
   if (s->len < n) {
     qleei_loc_printfn(loc, "[ERROR] "QLEEI_SV_Fmt_Str" requires %zu items in the stack to execute", QLEEI_SV_Fmt_Arg(sv), n);
@@ -1341,17 +1117,6 @@ bool qleei_stack_operation_requires_n_items(QLeei_Lex_Location loc, Qleei_Stack 
   return true;
 }
 
-/**
- * Validate that a value kind matches the expected kind and report a type error at the given source location if it does not.
- *
- * If `got` and `exp` differ, prints a location-prefixed type error referencing `sv` that states the expected and actual kinds.
- *
- * @param loc Source location used for the error message.
- * @param sv String view identifying the action or value being checked.
- * @param got The actual value kind observed.
- * @param exp The value kind expected.
- * @returns `true` if `got` equals `exp`, `false` otherwise.
- */
 bool qleei_action_expects_value_kind(QLeei_Lex_Location loc, Qleei_String_View sv, Qleei_Value_Kind got, Qleei_Value_Kind exp) {
   if (got == exp) return true;
   qleei_loc_printfn(
@@ -1365,15 +1130,6 @@ bool qleei_action_expects_value_kind(QLeei_Lex_Location loc, Qleei_String_View s
 }
 
 
-/**
- * Convert a Qleei_Value_Item to a numeric double representation.
- *
- * @param item Value item to convert.
- * @returns The numeric representation of `item`: the stored number for `QLEEI_VALUE_KIND_NUMBER`,
- * `1.0` if a `QLEEI_VALUE_KIND_BOOL` is true and `0.0` if false, or the pointer's address cast
- * to an unsigned integer then to `double` for `QLEEI_VALUE_KIND_POINTER`. Returns `0.0` for any
- * unrecognized kind.
- */
 double qleei_value_item_as_number(Qleei_Value_Item item) {
   switch (item.kind) {
   case QLEEI_VALUE_KIND_NUMBER:
@@ -1386,11 +1142,6 @@ double qleei_value_item_as_number(Qleei_Value_Item item) {
   return 0.0;
 }
 
-/**
- * Convert a Qleei_Value_Item to its boolean interpretation.
- * @param item Value item to interpret as a boolean.
- * @returns `true` if the item is a number not equal to 0, a boolean `true`, or a non-NULL pointer; `false` otherwise.
- */
 bool qleei_value_item_as_bool(Qleei_Value_Item item) {
   switch (item.kind) {
   case QLEEI_VALUE_KIND_NUMBER:
@@ -1403,13 +1154,6 @@ bool qleei_value_item_as_bool(Qleei_Value_Item item) {
   return false;
 }
 
-/**
- * Execute a while loop whose `while` token has already been consumed, using the interpreter state.
- *
- * @param it Interpreter instance whose lexer and stack are used and modified during loop execution.
- * @param inside_of_proc True if the loop is being executed while parsing/executing inside a procedure; affects execution context.
- * @returns `true` if the loop completed successfully, `false` on error.
- */
 bool qleei_execute_while(Qleei_Interpreter *it, bool inside_of_proc) {
   QLeei_Lexer *l = &it->lexer;
   QLeei_Lex_Location start_point = qleei_lexer_save_point(l);
@@ -1466,16 +1210,6 @@ bool qleei_execute_while(Qleei_Interpreter *it, bool inside_of_proc) {
   return false;
 }
 
-/**
- * Parse a procedure declaration starting at the current lexer position and register it with the interpreter.
- *
- * Parses a procedure name, its input and output type lists (e.g. `[] -> []`), and the procedure body (captures nested
- * `while`/`end` depth). On success the constructed Qleei_Proc is appended to the interpreter's procs list.
- *
- * @param it Interpreter whose embedded lexer is positioned at the `proc` keyword; the function advances the lexer
- *           as it consumes tokens.
- * @returns `true` if the procedure was successfully parsed and registered; `false` on lexer failure or syntax errors.
- */
 bool qleei_parse_proc(Qleei_Interpreter *it) {
   QLeei_Lexer *l = &it->lexer;
   if (!qleei_lexer_next(l)) return false;
@@ -1627,17 +1361,6 @@ bool qleei_parse_proc(Qleei_Interpreter *it) {
   return true;
 }
 
-/**
- * Execute a single token within the given interpreter, performing stack, memory,
- * I/O, control-flow, and procedure-related actions and updating interpreter state.
- *
- * @param it Interpreter instance to operate on; its stack, procs, lexer state and
- *           completion flag may be modified.
- * @param inside_of_proc Set to true when the token is being executed while
- *                       parsing/executing a procedure body (affects allowed actions).
- * @param t Token to execute.
- * @returns `true` if the token was handled successfully, `false` on error.
- */
 bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token t) {
   Qleei_Stack *stack = &it->stack;
   Qleei_String_View sv = t.string;
@@ -2119,20 +1842,6 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
   return false;
 }
 
-/**
- * Execute the procedure body defined by `proc` within the interpreter `it`.
- *
- * The lexer and interpreter state are advanced through the procedure body until an `end`
- * token is encountered; the interpreter's stack and other runtime state may be modified
- * by executing the procedure's tokens. On successful completion the original lexer
- * position is restored.
- *
- * @param it Interpreter instance whose lexer and runtime state will be used and modified.
- * @param proc Procedure descriptor containing the saved body start location to execute.
- * @returns `true` if the procedure body completed successfully and the original lexer
- *          position was restored, `false` if execution failed (lexer/state remains at
- *          the failure point).
- */
 bool qleei_execute_proc(Qleei_Interpreter *it, Qleei_Proc *proc) {
   QLeei_Lexer *l = &it->lexer;
   QLeei_Lex_Location save_point = qleei_lexer_save_point(l);
@@ -2155,12 +1864,6 @@ bool qleei_execute_proc(Qleei_Interpreter *it, Qleei_Proc *proc) {
   return ok;
 }
 
-/**
- * Advance the interpreter by one token and execute that token.
- *
- * @param it Interpreter state to advance; its lexer and runtime state may be updated.
- * @returns `true` if a token was successfully read and executed, `false` on lexing or execution error.
- */
 bool qleei_interpreter_step(Qleei_Interpreter *it) {
   if (!qleei_lexer_next(&it->lexer)) return false;
 
@@ -2169,67 +1872,23 @@ bool qleei_interpreter_step(Qleei_Interpreter *it) {
   return true;
 }
 
-/**
- * Initialize the interpreter's lexer for a new input buffer and reset the execution stack.
- *
- * Initializes the embedded lexer with the provided input path and buffer, and clears the interpreter's stack length so execution starts with an empty stack.
- *
- * @param it Interpreter instance to initialize.
- * @param input_path File path or identifier associated with the input buffer (used for location reporting).
- * @param buffer Pointer to the input character buffer to be lexed.
- * @param buf_size Size of the input buffer in bytes.
- */
 void qleei_interpreter_lexer_init(Qleei_Interpreter *it, const char *input_path, const char *buffer, qleei_uisz_t buf_size) {
   qleei_lexer_init(&it->lexer, input_path, buffer, buf_size);
   it->stack.len = 0;
 }
 
-/**
- * Add a word to the registry of words of the interpreter.
- * The lifetime of the word string is expected to outlive the interpreter words registry.
- * Added words do not override base words like swap2, rot2, mem_save_*, etc.
- *
- * @param it Interpreter instance for which to register a word for.
- * @param word Word that's being added to the registry. Should outlive its usage.
- * @param handler The function to call when this word is hit.
- * @returns `true` if the word is added/updated correctly, `false` otherwise.
- */
 bool qleei_interpreter_register_word(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler) {
   return qleei_word_registry_set_word(&it->words, word, handler, NULL);
 }
 
-/**
- * Add a word to the registry of words of the interpreter.
- * The lifetime of the word string is expected to outlive the interpreter words registry.
- * Added words do not override base words like swap2, rot2, mem_save_*, etc.
- *
- * @param it Interpreter instance for which to register a word for.
- * @param word Word that's being added to the registry. Should outlive its usage.
- * @param handler The function to call when this word is hit.
- * @param user_data Extra data to pass to handler when it is called.
- * @returns `true` if the word is added/updated correctly, `false` otherwise.
- */
 bool qleei_interpreter_register_word_with_data(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler, void *user_data) {
   return qleei_word_registry_set_word(&it->words, word, handler, user_data);
 }
 
-/**
- * Remove a word from the registry of words of the interpreter.
- *
- * @param it Interpreter instance from which to unregister a word for.
- * @param word Word that's being removed from the registry.
- * @returns `true` if the word is properly removed from the registry.
- */
 bool qleei_interpreter_unregister_word(Qleei_Interpreter *it, const char *word) {
   return qleei_word_registry_del_word(&it->words, word);
 }
 
-/**
- * Run the interpreter until it signals completion or a runtime error occurs.
- *
- * @param it Interpreter state to execute.
- * @returns `true` if execution reached completion, `false` if execution stopped due to an error.
- */
 bool qleei_interpreter_exec(Qleei_Interpreter *it) {
   while (qleei_interpreter_step(it)) {
     if (it->done) return true;
@@ -2237,13 +1896,6 @@ bool qleei_interpreter_exec(Qleei_Interpreter *it) {
   return false;
 }
 
-/**
- * Interpret a buffer as Qleei source and execute it until the program completes or an error occurs.
- * @param buffer_source_path Path used for location reporting (may be NULL).
- * @param buffer Pointer to the source buffer to interpret.
- * @param buf_size Size in bytes of the source buffer.
- * @returns `true` if interpretation ran to completion without error, `false` otherwise.
- */
 bool qleei_interpret_buffer(const char *buffer_source_path, const char *buffer, qleei_uisz_t buf_size) {
   bool result = false;
 
@@ -2268,11 +1920,6 @@ bool qleei_interpret_buffer(const char *buffer_source_path, const char *buffer, 
 #include <stdarg.h>
 #include <string.h>
 
-/**
- * Print formatted output to standard output using a printf-style format.
- * @param fmt Format string following printf conventions.
- * @param ... Values referenced by the format specifiers in `fmt`.
- */
 void qleei_printf(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
@@ -2280,16 +1927,6 @@ void qleei_printf(const char *fmt, ...) {
   va_end(ap);
 }
 
-/**
- * Print formatted output and append a newline.
- *
- * Formats text according to `fmt` and the following arguments using standard
- * printf-style specifiers, writes the result to stdout, and then writes a
- * terminating newline character.
- *
- * @param fmt Format string containing printf-style conversion specifiers.
- * @param ... Values referenced by the format specifiers in `fmt`.
- */
 void qleei_printfn(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
