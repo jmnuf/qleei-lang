@@ -294,7 +294,7 @@ int main(int argc, char **argv) {
         if (!sv_end_with(sv_from_cstr(file_path), ".ql")) continue;
         cmd_append(&cmd, native_output);
         cmd_append(&cmd, nob_temp_sprintf("%s/%s", folder_path, file_path));
-        printf("🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️🖊️\n");
+        printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
         bool ok = cmd_run(&cmd);
         Map_set_key(&m, file_path, ok);
       }
