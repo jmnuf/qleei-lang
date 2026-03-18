@@ -39,26 +39,155 @@ typedef struct {
 #define QLEEI_SV_Fmt_Str     "%.*s"
 #define QLEEI_SV_Fmt_Arg(sv) (int)sv.len, sv.data
 
+/**
+ * Create a Qleei_String_View that references a null-terminated C string.
+ *
+ * @param zstr Null-terminated C string to view. May be NULL.
+ * @returns A Qleei_String_View whose `data` points to `zstr` and whose `len` is the number of bytes
+ *          before the terminating NUL character. The view does not allocate or copy the string data.
+ */
 Qleei_String_View qleei_sv_from_zstr(const char *zstr);
+
+/**
+ * Determine whether a string view ends with a given suffix.
+ *
+ * @param sv String view to inspect.
+ * @param suffix Suffix string view to check for.
+ * @returns `true` if `sv` ends with `suffix`, `false` otherwise.
+ */
 bool qleei_sv_has_suffix(Qleei_String_View sv, Qleei_String_View suffix);
+
+/**
+ * Check whether a string view begins with a given prefix.
+ *
+ * @param sv The string view to test.
+ * @param prefix The prefix to check for at the start of `sv`.
+ * @returns `true` if `sv` begins with `prefix`, `false` otherwise.
+ */
 bool qleei_sv_has_prefix(Qleei_String_View sv, Qleei_String_View prefix);
+
+/**
+ * Compare a string view to a null-terminated C string for exact equality.
+ * @param sv String view to compare.
+ * @param zstr Null-terminated C string to compare against.
+ * @returns `true` if `sv` and `zstr` have the same length and identical characters, `false` otherwise.
+ */
 bool qleei_sv_eq_zstr(Qleei_String_View sv, const char *zstr);
+
+/**
+ * Determine whether two string views contain exactly the same bytes.
+ *
+ * @returns `true` if both `sv_a` and `sv_b` have the same length and identical byte-for-byte contents, `false` otherwise.
+ */
 bool qleei_sv_eq_sv(Qleei_String_View sv_a, Qleei_String_View sv_b);
 
 #define qleei_sv_iter(it, sv) for (const char *it = (sv).data; it < (sv).data + (sv).len; ++it)
 
+/**
+ * Compute the length of a null-terminated C string.
+ *
+ * @param zstr Pointer to a NUL-terminated string.
+ * @returns The number of characters before the terminating NUL.
+ */
 qleei_uisz_t qleei_zstr_len(const char *zstr);
+/**
+ * Compare two null-terminated C strings for equality.
+ *
+ * @param za First null-terminated string to compare.
+ * @param zb Second null-terminated string to compare.
+ * @returns `true` if the strings contain the same characters and length, `false` otherwise.
+ */
 bool qleei_zstr_eq(const char *za, const char *zb);
+
+/**
+ * Duplicate a null-terminated C string.
+ *
+ * @param zstr Null-terminated string to duplicate. May be NULL.
+ * @returns A newly allocated copy of `zstr`, or `NULL` if `zstr` is `NULL` or allocation fails.
+ */
 char *qleei_zstr_dup(const char *zstr);
 
+/**
+ * Parse a floating-point number from a string view.
+ *
+ * @param sv String view containing the numeric literal to parse.
+ * @returns The parsed `double` value; if `sv` does not contain a valid numeric literal, returns `0.0`.
+ */
 double qleei_parse_number(Qleei_String_View sv);
 
-bool  qleei_list_reserve(void **items, qleei_uisz_t item_size, qleei_uisz_t *current_capacity, qleei_uisz_t desired_capacity);
-bool  qleei_list_append(void **items, qleei_uisz_t item_size, qleei_uisz_t *capacity, qleei_uisz_t *length, void *item);
+/**
+ * Ensure a generic dynamic array has capacity for at least `desired_capacity` items by growing (doubling) the allocation as needed.
+ * @param items Pointer to the array pointer; updated to point to the reallocated memory on growth.
+ * @param item_size Size in bytes of a single item in the array.
+ * @param current_capacity Pointer to the current capacity (in number of items); updated to the new capacity on growth.
+ * @param desired_capacity Minimum required capacity (in number of items).
+ * @returns `true` if the array has capacity for at least `desired_capacity` items after the call, `false` if memory allocation failed.
+ */
+bool qleei_list_reserve(void **items, qleei_uisz_t item_size, qleei_uisz_t *current_capacity, qleei_uisz_t desired_capacity);
+
+/**
+ * Appends a raw item to a dynamically-sized byte array, growing the array if necessary.
+ *
+ * Ensures the underlying buffer has space for one more element, copies `item_size` bytes
+ * from `item` into the buffer at the next position, and increments `*length`.
+ *
+ * @param items Pointer to the array buffer pointer; may be reallocated and updated.
+ * @param item_size Size in bytes of a single item.
+ * @param capacity Pointer to the current capacity (in items); updated if the buffer grows.
+ * @param length Pointer to the current number of items; incremented on success.
+ * @param item Pointer to the source bytes to append.
+ * @return `true` if the item was appended successfully, `false` if the buffer could not be grown.
+ */
+bool qleei_list_append(void **items, qleei_uisz_t item_size, qleei_uisz_t *capacity, qleei_uisz_t *length, void *item);
+
+/**
+ * Get a pointer to the last element in a contiguous array of items.
+ * @param items Pointer to the start of the array.
+ * @param item_size Size in bytes of a single element in the array.
+ * @param length Number of elements currently in the array.
+ * @returns Pointer to the last element, or `NULL` when `length` is zero.
+ */
 void* qleei_list_last(void *items, qleei_uisz_t item_size, qleei_uisz_t length);
-bool  qleei_list_pop(void *items, qleei_uisz_t item_size, qleei_uisz_t *length, void *popped_item);
-bool  qleei_list_swap(void *items, qleei_uisz_t item_size, qleei_uisz_t i, qleei_uisz_t j, qleei_uisz_t length);
-void  qleei_list_free(void **items, qleei_uisz_t *capacity, qleei_uisz_t *length);
+
+/**
+ * Remove the last element from a raw array buffer.
+ *
+ * If the list is non-empty, copies the last element into `popped_item` (when non-NULL)
+ * and decrements `*length`.
+ *
+ * @param items Pointer to the array buffer storing items contiguously.
+ * @param item_size Size in bytes of each item stored in `items`.
+ * @param length Pointer to the current number of items; updated to the new length on success.
+ * @param popped_item Optional destination buffer where the popped item will be copied; may be NULL.
+ * @returns `true` if an item was popped, `false` if the list was empty.
+ */
+bool qleei_list_pop(void *items, qleei_uisz_t item_size, qleei_uisz_t *length, void *popped_item);
+
+/**
+ * Swap two elements in a contiguous array buffer.
+ *
+ * Swaps the element at index `i` with the element at index `j` in the buffer pointed
+ * to by `items`. The buffer is treated as `length` elements of size `item_size`
+ * bytes each; the swap is performed in-place.
+ *
+ * @param items Pointer to the contiguous array buffer containing elements to swap.
+ * @param item_size Size in bytes of a single element in the buffer.
+ * @param i Index of the first element to swap.
+ * @param j Index of the second element to swap.
+ * @param length Number of elements in the buffer.
+ * @returns `true` if the swap was performed or `i == j`, `false` if `items` is NULL
+ *          or either index is out of range (greater than or equal to `length`).
+ */
+bool qleei_list_swap(void *items, qleei_uisz_t item_size, qleei_uisz_t i, qleei_uisz_t j, qleei_uisz_t length);
+
+/**
+ * Free a dynamic list buffer and reset its metadata.
+ *
+ * @param items Pointer to the list buffer pointer; if non-NULL the buffer is freed and `*items` is set to NULL.
+ * @param capacity Pointer to the list capacity value; set to 0.
+ * @param length Pointer to the list length value; set to 0.
+ */
+void qleei_list_free(void **items, qleei_uisz_t *capacity, qleei_uisz_t *length);
 
 #define qleei_alist_reserve(alist, count) qleei_list_reserve((void**)&(alist)->items, sizeof(*(alist)->items), &(alist)->cap, count)
 #define qleei_alist_append(alist, item)   qleei_list_append((void**)&(alist)->items, sizeof(*(alist)->items), &(alist)->cap, &(alist)->len, item)
@@ -68,16 +197,76 @@ void  qleei_list_free(void **items, qleei_uisz_t *capacity, qleei_uisz_t *length
 #define qleei_alist_free(alist)           qleei_list_free((void**)&(alist)->items, &(alist)->cap, &(alist)->len)
 #define qleei_alist_foreach(T, it, list)  for (T *it = (list)->items; it < (list)->items + (list)->len; ++it)
 
+/**
+ * Allocate a block of memory of the given size.
+ *
+ * @param size Number of bytes to allocate.
+ * @returns Pointer to the allocated memory, or `NULL` if allocation failed.
+ */
 void *qleei_mem_alloc   (qleei_uisz_t size);
+/**
+ * Resize an allocated memory block using the C runtime `realloc`.
+ *
+ * @param ptr Pointer to previously allocated memory block or `NULL`.
+ * @param size New size in bytes for the memory block.
+ * @returns Pointer to the resized memory block, or `NULL` if allocation failed.
+ */
 void *qleei_mem_realloc (void *ptr, qleei_uisz_t size);
+/**
+ * Free memory previously allocated through qleei's allocator.
+ *
+ * @param ptr Pointer to the block to free. If `ptr` is NULL no action is taken.
+ */
 void  qleei_mem_free    (void *ptr);
+/**
+ * Copy `count` bytes from `src` to `dest`.
+ *
+ * Performs a byte-wise copy of `count` bytes from `src` into `dest`.
+ * Behavior is undefined if the source and destination memory regions overlap.
+ *
+ * @param dest Destination buffer that receives the copied bytes.
+ * @param src Source buffer to copy bytes from.
+ * @param count Number of bytes to copy.
+ * @returns Pointer to `dest`.
+ */
 void *qleei_mem_copy    (void *dest, const void *src, qleei_uisz_t count);
 
 
+/**
+ * Check whether a character is ASCII whitespace used by the lexer.
+ *
+ * @param c Character to test.
+ * @returns `true` if `c` is a tab (`'\t'`), newline (`'\n'`), carriage return (`'\r'`), or space (`' '`), `false` otherwise.
+ */
 static inline bool qleei_is_space_char(char c);
+
+/**
+ * Checks whether a character is a decimal digit.
+ * @param c Character to test.
+ * @returns `true` if `c` is between `'0'` and `'9'`, `false` otherwise.
+ */
 static inline bool qleei_is_number_char(char c);
+
+/**
+ * Check whether a character is an ASCII alphabetic letter.
+ *
+ * @param c Character to test.
+ * @return `true` if `c` is in the range 'A'..'Z' or 'a'..'z', `false` otherwise.
+ */
 static inline bool qleei_is_alphabetic_char(char c);
+
+/**
+ * Determine if a character is valid as the first character of an identifier.
+ * @param c Character to test.
+ * @returns `true` if `c` is an alphabetic character, an underscore (`_`), a numeral (`#`) or an at sign (`@`), `false` otherwise.
+ */
 static inline bool qleei_is_identifier_start_char(char c);
+
+/**
+ * Determine whether a character is valid inside an identifier.
+ *
+ * @returns `true` if `c` is a letter, underscore, numeral, dash, at sign, or digit (i.e., a valid identifier character), `false` otherwise.
+ */
 static inline bool qleei_is_identifier_char(char c);
 
 
@@ -123,10 +312,55 @@ typedef struct {
   QLeei_Token token;
 } QLeei_Lexer;
 
+/**
+ * Initialize a lexer with the provided input buffer and path.
+ *
+ * Sets the lexer's buffer, buffer length, and resets scanning position and token state.
+ *
+ * @param l Pointer to the lexer to initialize.
+ * @param input_path Human-readable source path used for location reporting (may be NULL).
+ * @param buffer Pointer to the input character buffer to tokenize.
+ * @param buf_size Length of the input buffer in bytes.
+ */
 void qleei_lexer_init(QLeei_Lexer *l, const char *input_path, const char *buffer, qleei_uisz_t buf_size);
+
+/**
+ * Advance the lexer to the next token and populate lexer->token with its kind, location, text, and numeric value when applicable.
+ *
+ * @param lexer Lexer state to advance; its index, line, column and token fields will be updated.
+ * @returns `true` if a token (including EOF) was successfully produced and stored in `lexer->token`, `false` on a lexing error (for example when `lexer->buffer` is NULL or an unterminated/invalid character literal is encountered).
+ */
 bool qleei_lexer_next(QLeei_Lexer *lexer);
+
+/**
+ * Retrieve the next token without advancing the lexer state.
+ *
+ * The function inspects the next token produced by the lexer `l` and writes it
+ * to `t`, leaving the original lexer `l` unchanged.
+ *
+ * @param l Lexer to peek into (not modified).
+ * @param t Destination for the next token.
+ * @returns `true` if the next token was retrieved into `t`, `false` if lexing failed.
+ */
 bool qleei_lexer_peek(QLeei_Lexer *l, QLeei_Token *t);
+
+/**
+ * Capture the lexer's current location so parsing can be resumed later.
+ *
+ * @param l Lexer whose current position will be saved.
+ * @returns A QLeei_Lex_Location containing the lexer's current file_path, index, line, and column.
+ */
 QLeei_Lex_Location qleei_lexer_save_point(QLeei_Lexer *l);
+
+/**
+ * Restore the lexer's current position from a saved location.
+ *
+ * Sets the lexer's input_path, index, line, and column to the values in save_point.
+ *
+ * @param l Lexer to restore.
+ * @param save_point Saved location providing file_path, index, line, and column.
+ * @returns `true` if the lexer was restored (always `true`).
+ */
 bool qleei_lexer_restore_point(QLeei_Lexer *l, QLeei_Lex_Location save_point);
 
 
@@ -136,6 +370,13 @@ typedef enum {
   QLEEI_VALUE_KIND_BOOL,
 } Qleei_Value_Kind;
 
+/**
+ * Get a human-readable name for a value kind.
+ *
+ * @param kind The value kind to describe.
+ * @returns A NUL-terminated string containing one of: "number", "pointer", "bool",
+ *          or "<Unknown>" if `kind` is not recognized.
+ */
 const char *qleei_get_value_kind_name(Qleei_Value_Kind kind);
 
 
@@ -158,6 +399,15 @@ typedef union {
   } as_bool;
 } Qleei_Value_Item;
 
+/**
+ * Append a Qleei_Value_Kind to a dynamic array, growing the array if needed.
+ *
+ * @param items Pointer to the array pointer storing `Qleei_Value_Kind` elements; may be realloced.
+ * @param cap Pointer to the current capacity of the array; updated on reallocation.
+ * @param len Pointer to the current length (number of used elements); incremented on success.
+ * @param item The value kind to append.
+ * @returns `true` if the item was appended successfully, `false` on allocation or other failure.
+ */
 bool qleei_value_kind_list_append(Qleei_Value_Kind **items, qleei_uisz_t *cap, qleei_uisz_t *len, Qleei_Value_Kind item);
 
 
@@ -167,6 +417,14 @@ typedef struct {
   qleei_uisz_t cap;
 } Qleei_Stack;
 
+/**
+ * Print the stack's contents to the configured output, displaying the top element first.
+ *
+ * Each item is printed in a human-readable form: Number(value) with four decimal places,
+ * Bool(true/false), or Pointer(address). Corrupted or unknown kinds are shown as CorruptedValue(kind, value).
+ *
+ * @param s Stack whose contents will be printed.
+ */
 void qleei_print_stack(Qleei_Stack *s);
 bool qleei_stack_push(Qleei_Stack *stack, Qleei_Value_Item item);
 bool qleei_stack_pop(Qleei_Stack *stack, Qleei_Value_Item *item);
@@ -244,13 +502,99 @@ bool qleei_interpreter_exec(Qleei_Interpreter *it);
 
 bool qleei_interpret_buffer(const char *buffer_source_path, const char *buffer, qleei_uisz_t buf_size);
 
+/**
+ * Verify the stack contains at least `n` items and report an error if it does not.
+ *
+ * If the stack has fewer than `n` items, prints a location-prefixed error mentioning
+ * the action named by `sv` and the required item count.
+ *
+ * @param loc Location used for the error message.
+ * @param s Stack to validate.
+ * @param sv String view naming the action that requires items on the stack.
+ * @param n Required number of items.
+ * @returns `true` if the stack has at least `n` items, `false` otherwise.
+ */
 bool qleei_stack_operation_requires_n_items(QLeei_Lex_Location loc, Qleei_Stack *s, Qleei_String_View sv, qleei_uisz_t n);
+
+/**
+ * Validate that a value kind matches the expected kind and report a type error at the given source location if it does not.
+ *
+ * If `got` and `exp` differ, prints a location-prefixed type error referencing `sv` that states the expected and actual kinds.
+ *
+ * @param loc Source location used for the error message.
+ * @param sv String view identifying the action or value being checked.
+ * @param got The actual value kind observed.
+ * @param exp The value kind expected.
+ * @returns `true` if `got` equals `exp`, `false` otherwise.
+ */
 bool qleei_action_expects_value_kind(QLeei_Lex_Location loc, Qleei_String_View sv, Qleei_Value_Kind got, Qleei_Value_Kind exp);
 
+/**
+ * Convert a Qleei_Value_Item to a numeric double representation.
+ *
+ * @param item Value item to convert.
+ * @returns The numeric representation of `item`: the stored number for `QLEEI_VALUE_KIND_NUMBER`,
+ * `1.0` if a `QLEEI_VALUE_KIND_BOOL` is true and `0.0` if false, or the pointer's address cast
+ * to an unsigned integer then to `double` for `QLEEI_VALUE_KIND_POINTER`. Returns `0.0` for any
+ * unrecognized kind.
+ */
 double qleei_value_item_as_number(Qleei_Value_Item item);
+
+/**
+ * Convert a Qleei_Value_Item to its boolean interpretation.
+ * @param item Value item to interpret as a boolean.
+ * @returns `true` if the item is a number not equal to 0, a boolean `true`, or a non-NULL pointer; `false` otherwise.
+ */
 bool qleei_value_item_as_bool(Qleei_Value_Item item);
 
+/**
+ * Execute a while loop whose `while` token has already been consumed, using the interpreter state.
+ *
+ * @param it Interpreter instance whose lexer and stack are used and modified during loop execution.
+ * @param inside_of_proc True if the loop is being executed while parsing/executing inside a procedure; affects execution context.
+ * @returns `true` if the loop completed successfully, `false` on error.
+ */
+bool qleei_execute_while(Qleei_Interpreter *it, bool inside_of_proc);
+
+/**
+ * Execute a single token within the given interpreter, performing stack, memory,
+ * I/O, control-flow, and procedure-related actions and updating interpreter state.
+ *
+ * @param it Interpreter instance to operate on; its stack, procs, lexer state and
+ *           completion flag may be modified.
+ * @param inside_of_proc Set to true when the token is being executed while
+ *                       parsing/executing a procedure body (affects allowed actions).
+ * @param t Token to execute.
+ * @returns `true` if the token was handled successfully, `false` on error.
+ */
 bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token t);
+
+/**
+ * Parse a procedure declaration starting at the current lexer position and register it with the interpreter.
+ *
+ * Parses a procedure name, its input and output type lists (e.g. `[] -> []`), and the procedure body (captures nested
+ * `while`/`end` depth). On success the constructed Qleei_Proc is appended to the interpreter's procs list.
+ *
+ * @param it Interpreter whose embedded lexer is positioned at the `proc` keyword; the function advances the lexer
+ *           as it consumes tokens.
+ * @returns `true` if the procedure was successfully parsed and registered; `false` on lexer failure or syntax errors.
+ */
+bool qleei_parse_proc(Qleei_Interpreter *it);
+
+/**
+ * Execute the procedure body defined by `proc` within the interpreter `it`.
+ *
+ * The lexer and interpreter state are advanced through the procedure body until an `end`
+ * token is encountered; the interpreter's stack and other runtime state may be modified
+ * by executing the procedure's tokens. On successful completion the original lexer
+ * position is restored.
+ *
+ * @param it Interpreter instance whose lexer and runtime state will be used and modified.
+ * @param proc Procedure descriptor containing the saved body start location to execute.
+ * @returns `true` if the procedure body completed successfully and the original lexer
+ *          position was restored, `false` if execution failed (lexer/state remains at
+ *          the failure point).
+ */
 bool qleei_execute_proc(Qleei_Interpreter *it, Qleei_Proc *proc);
 
 #ifdef PLATFORM_BROWSER
@@ -1954,11 +2298,6 @@ void qleei_printfn(const char *fmt, ...) {
   putchar('\n');
 }
 
-/**
- * Parse a floating-point number from a string view.
- * @param sv String view containing the numeric literal to parse.
- * @returns The parsed `double` value; if `sv` does not contain a valid numeric literal, returns `0.0`.
- */
 double qleei_parse_number(Qleei_String_View sv) {
   char buffer[sv.len+1];
   memcpy(buffer, sv.data, sv.len);
@@ -1966,60 +2305,22 @@ double qleei_parse_number(Qleei_String_View sv) {
   return atof((const char *)buffer);
 }
 
-/**
- * Allocate a block of memory of the given size.
- *
- * @param size Number of bytes to allocate.
- * @returns Pointer to the allocated memory, or `NULL` if allocation failed.
- */
 void *qleei_mem_alloc(qleei_uisz_t size) {
   return malloc(size);
 }
 
-/**
- * Resize an allocated memory block using the C runtime `realloc`.
- *
- * @param ptr Pointer to previously allocated memory block or `NULL`.
- * @param size New size in bytes for the memory block.
- * @returns Pointer to the resized memory block, or `NULL` if allocation failed.
- *          If `ptr` is `NULL`, behaves like `malloc(size)`. On allocation failure
- *          the original block remains unchanged. Behavior for `size == 0` follows
- *          the C runtime implementation.
- */
 void *qleei_mem_realloc(void *ptr, qleei_uisz_t size) {
   return realloc(ptr, size);
 }
 
-/**
- * Free memory previously allocated through qleei's allocator.
- *
- * @param ptr Pointer to the block to free. If `ptr` is NULL no action is taken.
- */
 void qleei_mem_free(void * ptr) {
   free(ptr);
 }
 
-/**
- * Copy `count` bytes from `src` to `dest`.
- *
- * Performs a byte-wise copy of `count` bytes from `src` into `dest`.
- * Behavior is undefined if the source and destination memory regions overlap.
- *
- * @param dest Destination buffer that receives the copied bytes.
- * @param src Source buffer to copy bytes from.
- * @param count Number of bytes to copy.
- * @returns Pointer to `dest`.
- */
 void *qleei_mem_copy(void *dest, const void *src, qleei_uisz_t count) {
   return memcpy(dest, src, count);
 }
 
-/**
- * Compute the length of a null-terminated C string.
- *
- * @param zstr Pointer to a NUL-terminated string.
- * @return The number of characters before the terminating NUL.
- */
 qleei_uisz_t qleei_zstr_len(const char *zstr) {
   return strlen(zstr);
 }
@@ -2029,12 +2330,6 @@ qleei_uisz_t qleei_zstr_len(const char *zstr) {
 
 #ifdef PLATFORM_BROWSER
 
-/**
- * Compute the length of a null-terminated C string.
- *
- * @param zstr Pointer to a null-terminated C string; must not be NULL.
- * @returns The number of characters before the terminating NUL byte.
- */
 qleei_uisz_t qleei_zstr_len(const char *zstr) {
   qleei_uisz_t len = 0;
   char c;
@@ -2043,51 +2338,22 @@ qleei_uisz_t qleei_zstr_len(const char *zstr) {
   return len;
 }
 
-/**
- * Parse a numeric value from the given string view.
- *
- * @param sv String view containing the characters to interpret as a number.
- * @returns The parsed numeric value as a `double`.
- */
 double qleei_parse_number(Qleei_String_View sv) {
   return qleei_wasm_parse_number((const char *)sv.data, sv.len);
 }
 
-/**
- * Allocate a block of memory.
- * @param size Number of bytes to allocate.
- * @returns Pointer to the allocated memory, or `NULL` if allocation fails.
- */
 void *qleei_mem_alloc(qleei_uisz_t size) {
   return qleei_wasm_malloc(size);
 }
 
-/**
- * Resize or allocate a memory block to the specified size in bytes.
- * @param ptr Pointer to an existing memory block or NULL to allocate a new block.
- * @param size Desired size of the memory block in bytes.
- * @returns Pointer to the resized (or newly allocated) memory block, or NULL on failure.
- */
 void *qleei_mem_realloc(void *ptr, qleei_uisz_t size) {
   return qleei_wasm_mrealloc(ptr, size);
 }
 
-/**
- * Release memory pointed to by `ptr` back to the platform allocator.
- * @param ptr Pointer to memory to free; passing `NULL` has no effect.
- */
 void qleei_mem_free(void *ptr) {
   qleei_wasm_mfree(ptr);
 }
 
-/**
- * Copy `count` bytes from `src` to `dest`.
- *
- * @param dest Destination buffer where bytes will be written. Must be large enough to hold `count` bytes.
- * @param src Source buffer to copy bytes from.
- * @param count Number of bytes to copy.
- * @returns Pointer to `dest`.
- */
 void *qleei_mem_copy(void *dest, const void *src, qleei_uisz_t count) {
   char *dbuf = (char*)dest;
   const char *sbuf = (const char *)src;
