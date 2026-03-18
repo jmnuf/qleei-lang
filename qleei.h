@@ -1052,7 +1052,7 @@ bool qleei_word_registry_del_word(Qleei_Word_Registry_Map *map, const char *word
     Qleei_Word_Registry_Item item = map->items[i - 1];
     if (qleei_zstr_eq(item.key, word)) {
       found = true;
-      if (i < map->len) map->items[map->len - 1] = map->items[i - 1];
+      if (i < map->len) map->items[i - 1] = map->items[map->len - 1];
       map->len--;
       break;
     }
