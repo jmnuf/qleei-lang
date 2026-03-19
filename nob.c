@@ -98,6 +98,7 @@ void usage(const char *program) {
   printf("    run [(input).ql]      ---        Execute interpreter after compiling with an input file\n");
   printf("    build                 ---        Force building of program\n");
   printf("    -etags                ---        Run etags on the C codebase\n");
+  printf("    docs                  ---        Generate documentation\n");
 }
 
 /**
@@ -202,6 +203,7 @@ int main(int argc, char **argv) {
   bool run_requested = false;
   bool build_demanded = false;
   bool uses_etags = false;
+  bool docs_requested = false;
   bool run_all = false;
   const char *run_input_file = NULL;
 
@@ -230,7 +232,12 @@ int main(int argc, char **argv) {
       uses_etags = true;
       continue;
     }
-    
+
+    if (streq(arg, "docs")) {
+      docs_requested = true;
+      continue;
+    }
+
     nob_log(ERROR, "Unknown argument provided to build system: %s", arg);
     usage(program_name);
     return 1;
@@ -241,7 +248,7 @@ int main(int argc, char **argv) {
 
   const char *native_output = BUILD_FOLDER"/qleei";
 
-  build_etags(&cmd);
+  if (uses_etags) build_etags(&cmd);
 
   within_temp {
     unit_target_desktop(&unit);
@@ -320,6 +327,20 @@ int main(int argc, char **argv) {
       if (run_input_file) cmd_append(&cmd, run_input_file);
       if (!cmd_run(&cmd)) return 1;
     }
+  }
+
+  if (docs_requested) {
+    const char *doc_gen_output = BUILD_FOLDER"/doc_gen";
+    within_temp {
+      unit_target_desktop(&unit);
+      unit_output(&unit, doc_gen_output);
+      unit_input(&unit, "./tools/doc_gen.c");
+      unit_input(&unit, "./nob.h");
+      if (!build_unit(&cmd, &unit)) return 1;
+    }
+    
+    cmd_append(&cmd, doc_gen_output);
+    if (!cmd_run(&cmd)) return 1;
   }
 
   return 0;
