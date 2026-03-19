@@ -18,6 +18,9 @@ typedef struct {
 
 static char *find_next_symbol_line(const char *content, size_t len, size_t start) {
     size_t line_start = start;
+    size_t typedef_start = 0;
+    int brace_count = 0;
+    bool is_typedef = false;
     
     for (size_t i = start; i < len; i++) {
         if (content[i] == '\n') {
@@ -42,14 +45,38 @@ static char *find_next_symbol_line(const char *content, size_t len, size_t start
                 continue;
             }
             
-            if (strncmp(trimmed, "typedef", 7) == 0 ||
-                strncmp(trimmed, "struct", 6) == 0 ||
-                strncmp(trimmed, "enum", 4) == 0 ||
-                strncmp(trimmed, "static", 6) == 0 ||
-                strncmp(trimmed, "const", 5) == 0 ||
-                strncmp(trimmed, "extern", 6) == 0 ||
-                (trimmed[0] != '#' && (isalpha(trimmed[0]) || trimmed[0] == '_'))) {
-                return line;
+            if (strncmp(trimmed, "typedef", 7) == 0) {
+                is_typedef = true;
+                typedef_start = line_start;
+            }
+            
+            if (is_typedef) {
+                for (size_t j = 0; j < line_len; j++) {
+                    if (content[line_start + j] == '{') brace_count++;
+                    if (content[line_start + j] == '}') brace_count--;
+                }
+                if (brace_count == 0 && typedef_start > 0) {
+                    size_t total_len = i - typedef_start;
+                    char *result = (char*)malloc(total_len + 1);
+                    memcpy(result, content + typedef_start, total_len);
+                    result[total_len] = '\0';
+                    free(line);
+                    return result;
+                }
+            } else {
+                if (strncmp(trimmed, "typedef", 7) == 0 ||
+                    strncmp(trimmed, "struct", 6) == 0 ||
+                    strncmp(trimmed, "enum", 4) == 0 ||
+                    strncmp(trimmed, "static", 6) == 0 ||
+                    strncmp(trimmed, "const", 5) == 0 ||
+                    strncmp(trimmed, "extern", 6) == 0 ||
+                    (trimmed[0] != '#' && (isalpha(trimmed[0]) || trimmed[0] == '_'))) {
+                    char *result = (char*)malloc(line_len + 1);
+                    memcpy(result, line, line_len);
+                    result[line_len] = '\0';
+                    free(line);
+                    return result;
+                }
             }
             
             free(line);
@@ -61,22 +88,37 @@ static char *find_next_symbol_line(const char *content, size_t len, size_t start
 
 static char *extract_name_from_signature(const char *signature) {
     const char *paren = strchr(signature, '(');
-    if (!paren) return NULL;
     
-    const char *p = paren - 1;
-    while (p > signature && (*p == ' ' || *p == '\t')) p--;
+    if (paren) {
+        const char *p = paren - 1;
+        while (p > signature && (*p == ' ' || *p == '\t')) p--;
+        
+        const char *name_end = p + 1;
+        while (p > signature && (isalnum(*p) || *p == '_')) p--;
+        p++;
+        
+        size_t name_len = name_end - p;
+        if (name_len > 0) {
+            char *result = (char*)malloc(name_len + 1);
+            memcpy(result, p, name_len);
+            result[name_len] = '\0';
+            return result;
+        }
+    }
+    
+    const char *search_end = signature + strlen(signature);
+    const char *p = search_end - 1;
+    
+    while (p > signature && (*p == ' ' || *p == '\t' || *p == '\n' || *p == ';')) p--;
     
     const char *name_end = p + 1;
-    const char *name_start = p;
-    while (name_start > signature && (isalnum(*name_start) || *name_start == '_')) {
-        name_start--;
-    }
-    name_start++;
+    while (p > signature && (isalnum(*p) || *p == '_')) p--;
+    p++;
     
-    size_t name_len = name_end - name_start;
-    if (name_len > 0) {
+    if (name_end > p) {
+        size_t name_len = name_end - p;
         char *result = (char*)malloc(name_len + 1);
-        memcpy(result, name_start, name_len);
+        memcpy(result, p, name_len);
         result[name_len] = '\0';
         return result;
     }

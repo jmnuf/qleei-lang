@@ -31,6 +31,9 @@ __extension__ typedef unsigned long long int qleei_ui64_t;
 #  define NULL ((void*)0)
 #endif // NULL
 
+/**
+ * A non-owning view into a string, consisting of a pointer and length.
+ */
 typedef struct {
   const char *data;
   qleei_uisz_t len;
@@ -282,6 +285,9 @@ static inline bool qleei_is_identifier_start_char(char c);
 static inline bool qleei_is_identifier_char(char c);
 
 
+/**
+ * A source location within a file, used for error reporting.
+ */
 typedef struct {
   const char *file_path;
   qleei_uisz_t index;
@@ -292,6 +298,9 @@ typedef struct {
 #define qleei_loc_printfn(loc, ...) \
 do { qleei_printf("%s:%zu:%zu: ", (loc).file_path, (loc).line, (loc).column); qleei_printfn(__VA_ARGS__); } while (0)
 
+/**
+ * The kind of a token produced by the lexer.
+ */
 typedef enum {
   QLEEI_TOKEN_KIND_NONE = 0,
   QLEEI_TOKEN_KIND_EOF,
@@ -301,6 +310,9 @@ typedef enum {
   QLEEI_TOKEN_KIND_SYMBOL,
 } Qleei_Token_Kind;
 
+/**
+ * A token produced by the lexer, including its kind, source location, and associated data.
+ */
 typedef struct {
   Qleei_Token_Kind kind;
   QLeei_Lex_Location loc;
@@ -312,6 +324,9 @@ typedef struct {
 const char *qleei_get_token_kind_name(Qleei_Token_Kind kind);
 
 
+/**
+ * The lexer state for tokenizing Qleei source code.
+ */
 typedef struct {
   const char *input_path;
   const char *buffer;
@@ -376,6 +391,9 @@ QLeei_Lex_Location qleei_lexer_save_point(QLeei_Lexer *l);
 bool qleei_lexer_restore_point(QLeei_Lexer *l, QLeei_Lex_Location save_point);
 
 
+/**
+ * The kind of a value on the Qleei stack.
+ */
 typedef enum {
   QLEEI_VALUE_KIND_NUMBER,
   QLEEI_VALUE_KIND_POINTER,
@@ -392,6 +410,9 @@ typedef enum {
 const char *qleei_get_value_kind_name(Qleei_Value_Kind kind);
 
 
+/**
+ * A value that can be stored on the Qleei stack. Contains a kind tag and the actual value data.
+ */
 typedef union {
   Qleei_Value_Kind kind;
 
@@ -423,6 +444,9 @@ typedef union {
 bool qleei_value_kind_list_append(Qleei_Value_Kind **items, qleei_uisz_t *cap, qleei_uisz_t *len, Qleei_Value_Kind item);
 
 
+/**
+ * The Qleei execution stack that holds values during interpretation.
+ */
 typedef struct {
   Qleei_Value_Item *items;
   qleei_uisz_t len;
@@ -476,6 +500,9 @@ typedef struct {
   } outputs;
 } Qleei_Proc;
 
+/**
+ * A dynamic array of user-defined procedures.
+ */
 typedef struct {
   Qleei_Proc *items;
   qleei_uisz_t len;
@@ -535,6 +562,9 @@ bool qleei_custom_words_add(Qleei_Custom_Words *w, const char *word, Qleei_Word_
  */
 bool qleei_custom_words_remove(Qleei_Custom_Words *w, const char *word);
 
+/**
+ * The main Qleei interpreter state, containing the lexer, stack, custom words, and user procedures.
+ */
 typedef struct {
   QLeei_Lexer  lexer;
   Qleei_Stack  stack;
