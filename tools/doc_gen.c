@@ -93,8 +93,56 @@ static char *find_next_symbol_line(const char *content, size_t len, size_t start
 }
 
 static char *extract_name_from_signature(const char *signature) {
-    const char *paren = strchr(signature, '(');
+    size_t sig_len = strlen(signature);
     
+    if (strncmp(signature, "typedef", 7) == 0) {
+        const char *ptrn = strstr(signature, "(*");
+        if (ptrn) {
+            const char *p = ptrn + 2;
+            while (*p == ' ' || *p == '\t') p++;
+            
+            if (isalnum(*p) || *p == '_') {
+                const char *name_start = p;
+                while (isalnum(*p) || *p == '_') p++;
+                size_t name_len = p - name_start;
+                if (name_len > 0) {
+                    char *result = (char*)malloc(name_len + 1);
+                    memcpy(result, name_start, name_len);
+                    result[name_len] = '\0';
+                    return result;
+                }
+            }
+        }
+        
+        const char *last_paren = strrchr(signature, ')');
+        if (last_paren) {
+            const char *p = last_paren - 1;
+            while (p > signature && (*p == ' ' || *p == '\t')) p--;
+            
+            if (*p == ')') {
+                int depth = 1;
+                while (p > signature && depth > 0) {
+                    p--;
+                    if (*p == ')') depth++;
+                    else if (*p == '(') depth--;
+                }
+                if (p > signature) p--;
+                while (p > signature && (*p == ' ' || *p == '\t' || *p == '*')) p--;
+                
+                if (isalnum(*p) || *p == '_') {
+                    const char *name_start = p;
+                    while (name_start > signature && (isalnum(name_start[-1]) || name_start[-1] == '_')) name_start--;
+                    size_t name_len = p - name_start + 1;
+                    char *result = (char*)malloc(name_len + 1);
+                    memcpy(result, name_start, name_len);
+                    result[name_len] = '\0';
+                    return result;
+                }
+            }
+        }
+    }
+    
+    const char *paren = strchr(signature, '(');
     if (paren) {
         const char *p = paren - 1;
         while (p > signature && (*p == ' ' || *p == '\t')) p--;
@@ -112,9 +160,7 @@ static char *extract_name_from_signature(const char *signature) {
         }
     }
     
-    const char *search_end = signature + strlen(signature);
-    const char *p = search_end - 1;
-    
+    const char *p = signature + sig_len - 1;
     while (p > signature && (*p == ' ' || *p == '\t' || *p == '\n' || *p == ';')) p--;
     
     const char *name_end = p + 1;
