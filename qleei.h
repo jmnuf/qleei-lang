@@ -758,16 +758,6 @@ void qleei_printfn(const char *fmt, ...);
 
 #ifdef QLEEI_IMPLEMENTATION
 
-/**
- * Get the handler for a word, checking builtins then custom words.
- *
- * @param it Interpreter containing custom words registry.
- * @param sv Word to look up.
- * @param user_data_out If not NULL, receives the word's user_data on match.
- * @returns Handler pointer, `QLEEI_BUILTIN_WORD_HANDLER` for builtins, or NULL if not found.
- */
-Qleei_Word_Handler qleei__get_word_handler(Qleei_Interpreter *it, Qleei_String_View sv, void **user_data_out);
-
 
 Qleei_String_View qleei_sv_from_zstr(const char *zstr) {
   Qleei_String_View sv = {0};
@@ -914,29 +904,244 @@ void qleei_list_free(void **items, qleei_uisz_t *capacity, qleei_uisz_t *length)
   *length = 0;
 }
 
+static bool qleei__word_print_number(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  Qleei_Value_Item item;
+  qleei_alist_pop(opt.stack, &item);
+  switch (item.kind) {
+  case QLEEI_VALUE_KIND_NUMBER:   qleei_printfn("%.4f", item.as_number.value); break;
+  case QLEEI_VALUE_KIND_BOOL:     qleei_printfn("%d", (int)item.as_bool.value); break;
+  case QLEEI_VALUE_KIND_POINTER:  qleei_printfn("%zu", (qleei_uisz_t)item.as_pointer.value); break;
+  }
+  return true;
+}
+
+static bool qleei__word_print_uisz(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  Qleei_Value_Item item;
+  qleei_alist_pop(opt.stack, &item);
+  switch (item.kind) {
+  case QLEEI_VALUE_KIND_NUMBER:   qleei_printfn("%zu", (qleei_uisz_t)item.as_number.value); break;
+  case QLEEI_VALUE_KIND_BOOL:    qleei_printfn("%zu", (qleei_uisz_t)item.as_bool.value); break;
+  case QLEEI_VALUE_KIND_POINTER:  qleei_printfn("%zu", (qleei_uisz_t)item.as_pointer.value); break;
+  }
+  return true;
+}
+
+static bool qleei__word_print_ptr(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  Qleei_Value_Item item;
+  qleei_alist_pop(opt.stack, &item);
+  if (!qleei_action_expects_value_kind(opt.token.loc, opt.token.string, item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
+  qleei_printfn("%p", item.as_pointer.value);
+  return true;
+}
+
+static bool qleei__word_print_char(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  Qleei_Value_Item item;
+  qleei_alist_pop(opt.stack, &item);
+  if (item.kind != QLEEI_VALUE_KIND_NUMBER) { qleei_printfn("[ERROR] Invalid item type passed to print_char"); return false; }
+  double n = item.as_number.value;
+  if (0 > n || n > 255) { qleei_printfn("[ERROR] Attempting to read a number as a char that exceeds the char limit of 255: %zu", (qleei_uisz_t)n); return false; }
+  qleei_printfn("%c", (char)n);
+  return true;
+}
+
+static bool qleei__word_print_bool(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  Qleei_Value_Item item;
+  qleei_alist_pop(opt.stack, &item);
+  if (item.kind != QLEEI_VALUE_KIND_BOOL) { qleei_printfn("[ERROR] Invalid item type passed to print_bool"); return false; }
+  qleei_printfn(item.as_bool.value ? "true" : "false");
+  return true;
+}
+
+static bool qleei__word_print_stack(Qleei_Word_Handler_Opt opt) {
+  qleei_print_stack(opt.stack);
+  return true;
+}
+
+static bool qleei__word_print_zstr(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  Qleei_Value_Item item;
+  qleei_alist_pop(opt.stack, &item);
+  if (item.kind != QLEEI_VALUE_KIND_POINTER) { qleei_printfn("[ERROR] Invalid type passed to "QLEEI_SV_Fmt_Str" expected pointer", QLEEI_SV_Fmt_Arg(opt.token.string)); return false; }
+  qleei_printfn("%s", (char*)item.as_pointer.value);
+  return true;
+}
+
+static bool qleei__word_dup(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  Qleei_Value_Item *n = qleei_alist_last(opt.stack, Qleei_Value_Item);
+  qleei_alist_append(opt.stack, n);
+  return true;
+}
+
+static bool qleei__word_over(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 2)) return false;
+  Qleei_Value_Item n = opt.stack->items[opt.stack->len-2];
+  qleei_alist_append(opt.stack, &n);
+  return true;
+}
+
+static bool qleei__word_drop(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  qleei_alist_pop(opt.stack, NULL);
+  return true;
+}
+
+static bool qleei__word_rot2(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 2)) return false;
+  qleei_alist_swap(opt.stack, opt.stack->len - 1, opt.stack->len - 2);
+  return true;
+}
+
+static bool qleei__word_swap2(Qleei_Word_Handler_Opt opt) {
+  return qleei__word_rot2(opt);
+}
+
+static bool qleei__word_swap3(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 3)) return false;
+  qleei_alist_swap(opt.stack, opt.stack->len - 1, opt.stack->len - 3);
+  return true;
+}
+
+static bool qleei__word_rot3(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 3)) return false;
+  qleei_alist_swap(opt.stack, opt.stack->len - 1, opt.stack->len - 3);
+  qleei_alist_swap(opt.stack, opt.stack->len - 1, opt.stack->len - 2);
+  return true;
+}
+
+static bool qleei__word_assert_empty(Qleei_Word_Handler_Opt opt) {
+  if (opt.stack->len != 0) {
+    qleei_printfn("[ERROR] Expected stack to be empty but %zu elements remain in it", opt.stack->len);
+    qleei_print_stack(opt.stack);
+  }
+  return true;
+}
+
+static bool qleei__word_mem_alloc(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  Qleei_Value_Item item;
+  qleei_alist_pop(opt.stack, &item);
+  if (item.kind != QLEEI_VALUE_KIND_NUMBER) { qleei_printfn("[ERROR] Invalid type passed to "QLEEI_SV_Fmt_Str" expected number", QLEEI_SV_Fmt_Arg(opt.token.string)); return false; }
+  void *ptr = qleei_mem_alloc((qleei_uisz_t)item.as_number.value);
+  item.as_pointer.kind = QLEEI_VALUE_KIND_POINTER;
+  item.as_pointer.value = ptr;
+  qleei_alist_append(opt.stack, &item);
+  return true;
+}
+
+static bool qleei__word_mem_free(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  Qleei_Value_Item item;
+  qleei_alist_pop(opt.stack, &item);
+  if (item.kind != QLEEI_VALUE_KIND_POINTER) { qleei_printfn("[ERROR] Invalid type passed to "QLEEI_SV_Fmt_Str" expected pointer", QLEEI_SV_Fmt_Arg(opt.token.string)); return false; }
+  qleei_mem_free(item.as_pointer.value);
+  return true;
+}
+
+static bool qleei__word_mem_save_si8(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 2)) return false;
+  Qleei_Value_Item ptr_item, val_item;
+  qleei_alist_pop(opt.stack, &ptr_item);
+  if (!qleei_action_expects_value_kind(opt.token.loc, opt.token.string, ptr_item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
+  qleei_alist_pop(opt.stack, &val_item);
+  if (!qleei_action_expects_value_kind(opt.token.loc, opt.token.string, val_item.kind, QLEEI_VALUE_KIND_NUMBER)) return false;
+  *(qleei_si8_t*)ptr_item.as_pointer.value = (qleei_si8_t)val_item.as_number.value;
+  return true;
+}
+
+static bool qleei__word_mem_save_ui8(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 2)) return false;
+  Qleei_Value_Item ptr_item, val_item;
+  qleei_alist_pop(opt.stack, &ptr_item);
+  if (ptr_item.kind != QLEEI_VALUE_KIND_POINTER) { qleei_loc_printfn(opt.token.loc, "[ERROR] "QLEEI_SV_Fmt_Str" requires a pointer at the top of the stack", QLEEI_SV_Fmt_Arg(opt.token.string)); qleei_printf("[NOTE] Current stack: "); qleei_print_stack(opt.stack); return false; }
+  qleei_alist_pop(opt.stack, &val_item);
+  if (val_item.kind != QLEEI_VALUE_KIND_NUMBER) { qleei_printfn("[ERROR] "QLEEI_SV_Fmt_Str" requires a number second to the top of the stack", QLEEI_SV_Fmt_Arg(opt.token.string)); return false; }
+  *(qleei_ui8_t*)ptr_item.as_pointer.value = (qleei_ui8_t)val_item.as_number.value;
+  return true;
+}
+
+static bool qleei__word_mem_load_ui8(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  Qleei_Value_Item item;
+  qleei_alist_pop(opt.stack, &item);
+  if (!qleei_action_expects_value_kind(opt.token.loc, opt.token.string, item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
+  item.as_number.kind = QLEEI_VALUE_KIND_NUMBER;
+  item.as_number.value = *(qleei_ui8_t*)item.as_pointer.value;
+  qleei_alist_append(opt.stack, &item);
+  return true;
+}
+
+static bool qleei__word_mem_save_ui32(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 2)) return false;
+  Qleei_Value_Item ptr_item, val_item;
+  qleei_alist_pop(opt.stack, &ptr_item);
+  qleei_alist_pop(opt.stack, &val_item);
+  if (!qleei_action_expects_value_kind(opt.token.loc, opt.token.string, ptr_item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
+  if (!qleei_action_expects_value_kind(opt.token.loc, opt.token.string, val_item.kind, QLEEI_VALUE_KIND_NUMBER)) return false;
+  *(qleei_ui32_t*)ptr_item.as_pointer.value = (qleei_ui32_t)val_item.as_number.value;
+  return true;
+}
+
+static bool qleei__word_mem_load_ui32(Qleei_Word_Handler_Opt opt) {
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  Qleei_Value_Item item;
+  qleei_alist_pop(opt.stack, &item);
+  if (!qleei_action_expects_value_kind(opt.token.loc, opt.token.string, item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
+  item.as_number.kind = QLEEI_VALUE_KIND_NUMBER;
+  item.as_number.value = *(qleei_ui32_t*)item.as_pointer.value;
+  qleei_alist_append(opt.stack, &item);
+  return true;
+}
+
+static bool qleei__word_proc(Qleei_Word_Handler_Opt opt) {
+  if (opt.inside_proc) {
+    qleei_printfn("[ERROR] Cannot define a procedure while inside of a procedure");
+    return false;
+  }
+  return qleei_parse_proc((Qleei_Interpreter*)opt.user_data);
+}
+
+static bool qleei__word_while(Qleei_Word_Handler_Opt opt) {
+  return qleei_execute_while((Qleei_Interpreter*)opt.user_data, opt.inside_proc);
+}
+
+static bool qleei__word_if(Qleei_Word_Handler_Opt opt) {
+  (void)opt;
+  qleei_printfn("[TODO] if expressions are not implemented yet");
+  return false;
+}
+
 static Qleei_Custom_Word QLEEI_BUILTIN_WORDS[] = {
-  { "print_number",   { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "print_uisz",     { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "print_ptr",      { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "print_char",     { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "print_bool",     { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "print_stack",    { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "print_zstr",     { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "dup",            { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "over",           { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "drop",           { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "rot2",           { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "swap2",          { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "swap3",          { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "rot3",           { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "assert_empty",   { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "mem_alloc",      { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "mem_free",       { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "mem_save_si8",   { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "mem_save_ui8",   { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "mem_load_ui8",   { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "mem_save_ui32",  { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
-  { "mem_load_ui32",  { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "proc",           { .handler = qleei__word_proc,          .user_data = NULL } },
+  { "while",          { .handler = qleei__word_while,         .user_data = NULL } },
+  { "if",             { .handler = qleei__word_if,            .user_data = NULL } },
+  { "print_number",   { .handler = qleei__word_print_number,  .user_data = NULL } },
+  { "print_uisz",     { .handler = qleei__word_print_uisz,    .user_data = NULL } },
+  { "print_ptr",      { .handler = qleei__word_print_ptr,     .user_data = NULL } },
+  { "print_char",     { .handler = qleei__word_print_char,    .user_data = NULL } },
+  { "print_bool",     { .handler = qleei__word_print_bool,    .user_data = NULL } },
+  { "print_stack",    { .handler = qleei__word_print_stack,   .user_data = NULL } },
+  { "print_zstr",     { .handler = qleei__word_print_zstr,    .user_data = NULL } },
+  { "dup",            { .handler = qleei__word_dup,           .user_data = NULL } },
+  { "over",           { .handler = qleei__word_over,          .user_data = NULL } },
+  { "drop",           { .handler = qleei__word_drop,          .user_data = NULL } },
+  { "rot2",           { .handler = qleei__word_rot2,          .user_data = NULL } },
+  { "swap2",          { .handler = qleei__word_swap2,         .user_data = NULL } },
+  { "swap3",          { .handler = qleei__word_swap3,         .user_data = NULL } },
+  { "rot3",           { .handler = qleei__word_rot3,          .user_data = NULL } },
+  { "assert_empty",   { .handler = qleei__word_assert_empty,  .user_data = NULL } },
+  { "mem_alloc",      { .handler = qleei__word_mem_alloc,     .user_data = NULL } },
+  { "mem_free",       { .handler = qleei__word_mem_free,      .user_data = NULL } },
+  { "mem_save_si8",   { .handler = qleei__word_mem_save_si8,  .user_data = NULL } },
+  { "mem_save_ui8",   { .handler = qleei__word_mem_save_ui8,  .user_data = NULL } },
+  { "mem_load_ui8",   { .handler = qleei__word_mem_load_ui8,  .user_data = NULL } },
+  { "mem_save_ui32",  { .handler = qleei__word_mem_save_ui32, .user_data = NULL } },
+  { "mem_load_ui32",  { .handler = qleei__word_mem_load_ui32, .user_data = NULL } },
 };
 static const qleei_uisz_t QLEEI_BUILTIN_WORD_COUNT = sizeof(QLEEI_BUILTIN_WORDS) / sizeof(QLEEI_BUILTIN_WORDS[0]);
 
@@ -1034,22 +1239,26 @@ static bool qleei_builtin_word_exists(Qleei_String_View sv) {
   return false;
 }
 
-#define QLEEI_BUILTIN_WORD_HANDLER ((Qleei_Word_Handler)1)
-
 Qleei_Word_Handler qleei__get_word_handler(Qleei_Interpreter *it, Qleei_String_View sv, void **user_data_out) {
   char buf[QLEEI_MAX_WORD_SIZE];
   if (!qleei_cp_sv_to_buf(sv, buf, sizeof(buf))) return NULL;
 
   for (qleei_uisz_t i = 0; i < QLEEI_BUILTIN_WORD_COUNT; i++) {
     if (qleei_zstr_eq(QLEEI_BUILTIN_WORDS[i].key, buf)) {
-      if (user_data_out) *user_data_out = QLEEI_BUILTIN_WORDS[i].val.user_data;
+      if (user_data_out) {
+        *user_data_out = QLEEI_BUILTIN_WORDS[i].val.user_data;
+        if (*user_data_out == NULL) *user_data_out = it;
+      }
       return QLEEI_BUILTIN_WORDS[i].val.handler;
     }
   }
 
   for (qleei_uisz_t i = 0; i < it->words.len; i++) {
     if (qleei_zstr_eq(it->words.items[i].key, buf)) {
-      if (user_data_out) *user_data_out = it->words.items[i].val.user_data;
+      if (user_data_out) {
+        *user_data_out = it->words.items[i].val.user_data;
+        if (*user_data_out == NULL) *user_data_out = it;
+      }
       return it->words.items[i].val.handler;
     }
   }
@@ -1563,299 +1772,10 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
     return true;
 
   case QLEEI_TOKEN_KIND_IDENTIFIER:
-    if (qleei_sv_eq_zstr(sv, "proc")) {
-      if (inside_of_proc) {
-	      qleei_printfn("[ERROR] Cannot define a procedure while inside of a procedure");
-	      return false;
-      }
-      if (!qleei_parse_proc(it)) return false;
-      return true;
-    }
-
-    if (qleei_sv_eq_zstr(sv, "if")) {
-      qleei_printfn("[TODO] if expressions are not implemented yet");
-      return false;
-    }
-
-    if (qleei_sv_eq_zstr(sv, "while")) {
-      if (!qleei_execute_while(it, inside_of_proc)) return false;
-      return true;
-    }
-
-    // [number] -> []
-    if (qleei_sv_eq_zstr(sv, "print_number")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Qleei_Value_Item item;
-      qleei_alist_pop(stack, &item);
-      switch (item.kind) {
-      case QLEEI_VALUE_KIND_NUMBER:
-	      qleei_printfn("%.4f", item.as_number.value);
-	      break;
-      case QLEEI_VALUE_KIND_BOOL:
-	      qleei_printfn("%d", (int)item.as_bool.value);
-	      break;
-      case QLEEI_VALUE_KIND_POINTER:
-	      qleei_printfn("%zu", (qleei_uisz_t)item.as_pointer.value);
-	      break;
-      }
-      return true;
-    }
-
-    // [number] -> []
-    if (qleei_sv_eq_zstr(sv, "print_uisz")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Qleei_Value_Item item;
-      qleei_alist_pop(stack, &item);
-      switch (item.kind) {
-      case QLEEI_VALUE_KIND_NUMBER:
-	      qleei_printfn("%zu", (qleei_uisz_t)item.as_number.value);
-	      break;
-      case QLEEI_VALUE_KIND_BOOL:
-	      qleei_printfn("%zu", (qleei_uisz_t)item.as_bool.value);
-	      break;
-      case QLEEI_VALUE_KIND_POINTER:
-	      qleei_printfn("%zu", (qleei_uisz_t)item.as_pointer.value);
-	      break;
-      }
-      return true;
-    }
-
-    // [pointer] -> []
-    if (qleei_sv_eq_zstr(sv, "print_ptr")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Qleei_Value_Item item;
-      qleei_alist_pop(stack, &item);
-      if (!qleei_action_expects_value_kind(t.loc, sv, item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
-      void *ptr = item.as_pointer.value;
-      qleei_printfn("%p", ptr);
-      return true;
-    }
-
-    // [number] -> []
-    if (qleei_sv_eq_zstr(sv, "print_char")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Qleei_Value_Item item;
-      qleei_alist_pop(stack, &item);
-      if (item.kind != QLEEI_VALUE_KIND_NUMBER) {
-	      qleei_printfn("[ERROR] Invalid item type passed to print_char");
-	      return false;
-      }
-      double n = item.as_number.value;
-      if (0 > n || n > 255) {
-	      qleei_printfn("[ERROR] Attempting to read a number as a char that exceeds the char limit of 255: %zu", (qleei_uisz_t)n);
-	      return false;
-      }
-      char c = (char)n;
-      qleei_printfn("%c", c);
-      return true;
-    }
-
-    // [bool] -> []
-    if (qleei_sv_eq_zstr(sv, "print_bool")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Qleei_Value_Item item;
-      qleei_alist_pop(stack, &item);
-      if (item.kind != QLEEI_VALUE_KIND_BOOL) {
-	      qleei_printfn("[ERROR] Invalid item type passed to print_bool");
-	      return false;
-      }
-      qleei_printfn(item.as_bool.value ? "true" : "false");
-      return true;
-    }
-
-    // [] -> []
-    if (qleei_sv_eq_zstr(sv, "print_stack")) {
-      qleei_print_stack(stack);
-      return true;
-    }
-
-    // [pointer] -> []
-    if (qleei_sv_eq_zstr(sv, "print_zstr")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Qleei_Value_Item item;
-      qleei_alist_pop(stack, &item);
-      if (item.kind != QLEEI_VALUE_KIND_POINTER) {
-	      qleei_printfn("[ERROR] Invalid type passed to "QLEEI_SV_Fmt_Str" expected pointer", QLEEI_SV_Fmt_Arg(sv));
-	      return false;
-      }
-      char *zstr = item.as_pointer.value;
-      qleei_printfn("%s", zstr);
-      return true;
-    }
-
-    // [T] -> [T, T]
-    if (qleei_sv_eq_zstr(sv, "dup")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Qleei_Value_Item *n = qleei_alist_last(stack, Qleei_Value_Item);
-      qleei_alist_append(stack, n);
-      return true;
-    }
-
-    // [a, b] -> [b, a, b]
-    if (qleei_sv_eq_zstr(sv, "over")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      Qleei_Value_Item n = stack->items[stack->len-2];
-      qleei_alist_append(stack, &n);
-      return true;
-    }
-
-    // [T] -> []
-    if (qleei_sv_eq_zstr(sv, "drop")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      qleei_alist_pop(stack, NULL);
-      return true;
-    }
-
-    // [a, b] -> [b, a]
-    if (qleei_sv_eq_zstr(sv, "rot2") || qleei_sv_eq_zstr(sv, "swap2")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      qleei_alist_swap(stack, stack->len - 1, stack->len - 2);
-      return true;
-    }
-
-    // [a, b, c] -> [c, b, a]
-    if (qleei_sv_eq_zstr(sv, "swap3")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 3)) return false;
-      qleei_alist_swap(stack, stack->len - 1, stack->len - 3);
-      return true;
-    }
-
-    // [a, b, c] -> [a, b, c]
-    if (qleei_sv_eq_zstr(sv, "rot3")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 3)) return false;
-      qleei_alist_swap(stack, stack->len - 1, stack->len - 3); // [a, b, c] -> [c, b, a]
-      qleei_alist_swap(stack, stack->len - 1, stack->len - 2); // [c, b, a] -> [b, c, a]
-      return true;
-    }
-
-    // [] -> [] | [T] -> !
-    if (qleei_sv_eq_zstr(sv, "assert_empty")) {
-      if (stack->len != 0) {
-	      qleei_printfn("[ERROR] Expected stack to be empty but %zu elements remain in it", stack->len);
-	      qleei_print_stack(stack);
-      }
-      return true;
-    }
-
-    // [number(uisz)] -> [ptr]
-    if (qleei_sv_eq_zstr(sv, "mem_alloc")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Qleei_Value_Item item;
-      qleei_alist_pop(stack, &item);
-      if (item.kind != QLEEI_VALUE_KIND_NUMBER) {
-	      qleei_printfn("[ERROR] Invalid type passed to "QLEEI_SV_Fmt_Str" expected number", QLEEI_SV_Fmt_Arg(sv));
-	      return false;
-      }
-      qleei_uisz_t n = (qleei_uisz_t)item.as_number.value;
-      void *ptr = qleei_mem_alloc(n);
-      item.as_pointer.kind = QLEEI_VALUE_KIND_POINTER;
-      item.as_pointer.value = ptr;
-      qleei_alist_append(stack, &item);
-      return true;
-    }
-
-    // [ptr] -> []
-    if (qleei_sv_eq_zstr(sv, "mem_free")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Qleei_Value_Item item;
-      qleei_alist_pop(stack, &item);
-      if (item.kind != QLEEI_VALUE_KIND_POINTER) {
-	      qleei_printfn("[ERROR] Invalid type passed to "QLEEI_SV_Fmt_Str" expected pointer", QLEEI_SV_Fmt_Arg(sv));
-	      return false;
-      }
-      void *ptr = item.as_pointer.value;
-      qleei_mem_free(ptr);
-      return true;
-    }
-
-    if (qleei_sv_eq_zstr(sv, "mem_save_si8")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      Qleei_Value_Item ptr_item, val_item;
-
-      qleei_alist_pop(stack, &ptr_item);
-      if (!qleei_action_expects_value_kind(t.loc, sv, ptr_item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
-
-      qleei_alist_pop(stack, &val_item);
-      if (!qleei_action_expects_value_kind(t.loc, sv, val_item.kind, QLEEI_VALUE_KIND_NUMBER)) return false;
-
-      qleei_si8_t *ptr = (qleei_si8_t*)ptr_item.as_pointer.value;
-      qleei_si8_t  val =  (qleei_si8_t)val_item.as_number.value;
-
-      *ptr = val;
-      return true;
-    }
-
-    // [ptr, ui8] -> []
-    if (qleei_sv_eq_zstr(sv, "mem_save_ui8")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      Qleei_Value_Item ptr_item, val_item;
-
-      qleei_alist_pop(stack, &ptr_item);
-      if (ptr_item.kind != QLEEI_VALUE_KIND_POINTER) {
-	      qleei_loc_printfn(t.loc, "[ERROR] "QLEEI_SV_Fmt_Str" requires a pointer at the top of the stack", QLEEI_SV_Fmt_Arg(sv));
-        qleei_printf("[NOTE] Current stack: ");
-        qleei_print_stack(stack);
-	      return false;
-      }
-
-      qleei_alist_pop(stack, &val_item);
-      if (val_item.kind != QLEEI_VALUE_KIND_NUMBER) {
-	      qleei_printfn("[ERROR] "QLEEI_SV_Fmt_Str" requires a number second to the top of the stack", QLEEI_SV_Fmt_Arg(sv));
-	      return false;
-      }
-
-      qleei_ui8_t *ptr = (qleei_ui8_t*)ptr_item.as_pointer.value;
-      qleei_ui8_t  val = (qleei_ui8_t)val_item.as_number.value;
-
-      *ptr = val;
-      return true;
-    }
-
-    // [ptr] -> [number]
-    if (qleei_sv_eq_zstr(sv, "mem_load_ui8")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Qleei_Value_Item item;
-      qleei_alist_pop(stack, &item);
-      if (!qleei_action_expects_value_kind(t.loc, sv, item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
-      qleei_ui8_t *ptr = (qleei_ui8_t*)item.as_pointer.value;
-      qleei_ui8_t val = *ptr;
-      item.as_number.kind  = QLEEI_VALUE_KIND_NUMBER;
-      item.as_number.value = (double)val;
-      qleei_alist_append(stack, &item);
-      return true;
-    }
-
-    // [ptr, ui32] -> []
-    if (qleei_sv_eq_zstr(sv, "mem_save_ui32")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 2)) return false;
-      Qleei_Value_Item ptr_item, val_item;
-      qleei_alist_pop(stack, &ptr_item);
-      qleei_alist_pop(stack, &val_item);
-      if (!qleei_action_expects_value_kind(t.loc, sv, ptr_item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
-      if (!qleei_action_expects_value_kind(t.loc, sv, val_item.kind, QLEEI_VALUE_KIND_NUMBER)) return false;
-      qleei_ui32_t *ptr = (qleei_ui32_t*)ptr_item.as_pointer.value;
-      qleei_ui32_t  val = (qleei_ui32_t)val_item.as_number.value;
-      *ptr = val;
-      return true;
-    }
-
-    // [ptr] -> [ui32]
-    if (qleei_sv_eq_zstr(sv, "mem_load_ui32")) {
-      if (!qleei_stack_operation_requires_n_items(t.loc, stack, sv, 1)) return false;
-      Qleei_Value_Item item;
-      qleei_alist_pop(stack, &item);
-      if (!qleei_action_expects_value_kind(t.loc, sv, item.kind, QLEEI_VALUE_KIND_POINTER)) return false;
-      qleei_ui32_t val = *(qleei_ui32_t*)item.as_pointer.value;
-      item.as_number.kind  = QLEEI_VALUE_KIND_NUMBER;
-      item.as_number.value = val;
-      qleei_alist_append(stack, &item);
-      return true;
-    }
-
     {
       void *user_data = NULL;
       Qleei_Word_Handler h = qleei__get_word_handler(it, sv, &user_data);
-      if (h != NULL && h != QLEEI_BUILTIN_WORD_HANDLER) {
+      if (h != NULL) {
         Qleei_Word_Handler_Opt handler_opt = {
           .token = t,
           .stack = stack,
