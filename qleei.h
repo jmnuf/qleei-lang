@@ -976,6 +976,8 @@ Qleei_Proc *qleei_procs_find_by_sv_name(Qleei_Procs *haystack, Qleei_String_View
  * @returns Pointer to the matching Qleei_Word_Registry_Item if found, NULL otherwise.
  */
 Qleei_Word_Registry_Item *qleei_word_registry_get_word(Qleei_Word_Registry_Map *map, const char *word) {
+  if (map == NULL || word == NULL) return NULL;
+
   qleei_alist_foreach(Qleei_Word_Registry_Item, pair, map) {
     if (qleei_zstr_eq(pair->key, word)) return pair;
   }
@@ -984,6 +986,8 @@ Qleei_Word_Registry_Item *qleei_word_registry_get_word(Qleei_Word_Registry_Map *
 
 
 bool qleei_word_registry_set_word(Qleei_Word_Registry_Map *map, const char *word, Qleei_Word_Handler handler, void *user_data) {
+  if (map == NULL || word == NULL || handler == NULL) return NULL;
+
   Qleei_Word_Registry_Item *existing = qleei_word_registry_get_word(map, word);
   if (existing != NULL) {
     existing->val.handler = handler;
