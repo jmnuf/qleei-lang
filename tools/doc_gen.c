@@ -34,7 +34,7 @@ typedef struct {
     size_t capacity;
 } Group_List;
 
-static const char *get_group_key(const char *name, char *buf, size_t buf_size) {
+static const char *group_key(const char *name, char *buf, size_t buf_size) {
     if (strncmp(name, "qleei_", 6) == 0) {
         name = name + 6;
     } else if (strncmp(name, "QLeei_", 6) == 0) {
@@ -68,7 +68,7 @@ static const char *get_group_key(const char *name, char *buf, size_t buf_size) {
     return buf;
 }
 
-static int group_compare(const void *a, const void *b) {
+static int group_cmp(const void *a, const void *b) {
     const Group *ga = (const Group*)a;
     const Group *gb = (const Group*)b;
     if (ga->key == NULL && gb->key == NULL) return 0;
@@ -77,7 +77,7 @@ static int group_compare(const void *a, const void *b) {
     return strcmp(ga->key, gb->key);
 }
 
-static char *find_next_symbol_line(const char *content, size_t len, size_t start) {
+static char *parse_symbol_line(const char *content, size_t len, size_t start) {
     size_t line_start = start;
     size_t typedef_start = 0;
     int brace_count = 0;
@@ -147,7 +147,7 @@ static char *find_next_symbol_line(const char *content, size_t len, size_t start
     return NULL;
 }
 
-static char *extract_name_from_signature(const char *signature) {
+static char *parse_name(const char *signature) {
     if (strncmp(signature, "typedef", 7) == 0) {
         const char *ptrn = strstr(signature, "(*");
         if (ptrn) {
@@ -228,7 +228,7 @@ static char *extract_name_from_signature(const char *signature) {
     return NULL;
 }
 
-static char *clean_doc_comment(const char *doc, size_t len) {
+static char *parse_doc(const char *doc, size_t len) {
     size_t start = 0;
     while (start < len && (doc[start] == ' ' || doc[start] == '\t')) start++;
     if (start + 2 < len && doc[start] == '/' && doc[start+1] == '*' && doc[start+2] == '*') {
@@ -301,13 +301,13 @@ static void parse_header(const char *path, Api_List *api) {
                 memcpy(doc_comment, data + doc_start, doc_len);
                 doc_comment[doc_len] = '\0';
                 
-                char *cleaned_doc = clean_doc_comment(doc_comment, doc_len);
+                char *cleaned_doc = parse_doc(doc_comment, doc_len);
                 free(doc_comment);
                 
-                char *signature = find_next_symbol_line(data, len, doc_end + 2);
+                char *signature = parse_symbol_line(data, len, doc_end + 2);
                 
                 if (signature) {
-                    char *name = extract_name_from_signature(signature);
+                    char *name = parse_name(signature);
                     
                     Api_Item item = {
                         .name = name ? strdup(name) : strdup("unknown"),
@@ -332,7 +332,7 @@ static void parse_header(const char *path, Api_List *api) {
     sb_free(content);
 }
 
-static bool is_c_keyword(const char *word, size_t len) {
+static bool token_is_keyword(const char *word, size_t len) {
     static const char *keywords[] = {
         "auto", "break", "case", "char", "const", "continue", "default", "do",
         "double", "else", "enum", "extern", "float", "for", "goto", "if",
@@ -349,7 +349,7 @@ static bool is_c_keyword(const char *word, size_t len) {
     return false;
 }
 
-static bool is_c_type(const char *word, size_t len) {
+static bool token_is_builtin(const char *word, size_t len) {
     static const char *types[] = {
         "size_t", "ssize_t", "bool", "char", "int", "long", "short", "float",
         "double", "void", "FILE", "ptrdiff_t", "wchar_t", "char16_t", "char32_t",
@@ -364,7 +364,7 @@ static bool is_c_type(const char *word, size_t len) {
     return false;
 }
 
-static bool is_known_type(const char *word, size_t len, Type_List *types) {
+static bool token_is_known(const char *word, size_t len, Type_List *types) {
     for (size_t i = 0; i < types->count; i++) {
         size_t type_len = strlen(types->items[i]);
         if (len == type_len && strncmp(word, types->items[i], len) == 0) {
@@ -386,7 +386,7 @@ static void html_escape(String_Builder *sb, const char *text, size_t len) {
     }
 }
 
-static void highlight_c_code(String_Builder *sb, const char *code, size_t len, Type_List *types, const char *current_name) {
+static void html_code_highlight(String_Builder *sb, const char *code, size_t len, Type_List *types, const char *current_name) {
     size_t i = 0;
     while (i < len) {
         if (code[i] == '/' && i + 1 < len && code[i+1] == '/') {
@@ -435,15 +435,15 @@ static void highlight_c_code(String_Builder *sb, const char *code, size_t len, T
             size_t word_len = i - start;
             const char *word = code + start;
             
-            if (is_c_keyword(word, word_len)) {
+            if (token_is_keyword(word, word_len)) {
                 sb_append_cstr(sb, "<span class=\"syn-kw\">");
                 html_escape(sb, word, word_len);
                 sb_append_cstr(sb, "</span>");
-            } else if (is_c_type(word, word_len)) {
+            } else if (token_is_builtin(word, word_len)) {
                 sb_append_cstr(sb, "<span class=\"syn-tp\">");
                 html_escape(sb, word, word_len);
                 sb_append_cstr(sb, "</span>");
-            } else if (is_known_type(word, word_len, types) && 
+            } else if (token_is_known(word, word_len, types) && 
                        (current_name == NULL || strncmp(word, current_name, word_len) != 0 || strlen(current_name) != word_len)) {
                 sb_appendf(sb, "<a href=\"#%.*s\" class=\"type-link\">", (int)word_len, word);
                 html_escape(sb, word, word_len);
@@ -484,7 +484,7 @@ static void highlight_c_code(String_Builder *sb, const char *code, size_t len, T
     }
 }
 
-static void write_html_header(String_Builder *sb) {
+static void html_doc_open(String_Builder *sb) {
     sb_append_cstr(sb,
         "<!DOCTYPE html>\n"
         "<html lang=\"en\">\n"
@@ -541,45 +541,45 @@ static void write_html_header(String_Builder *sb) {
     );
 }
 
-static void write_html_footer(String_Builder *sb) {
+static void html_main_open(String_Builder *sb) {
     sb_append_cstr(sb,
         "</nav>\n"
         "<main class=\"main\">\n"
     );
 }
 
-static void write_section_header(String_Builder *sb, const char *id, const char *title, const char *tagline) {
+static void html_section_open(String_Builder *sb, const char *id, const char *title, const char *tagline) {
     sb_appendf(sb, "<section id=\"%s\">\n", id);
     sb_appendf(sb, "<h1 class=\"section-header\">%s</h1>\n", title);
     sb_appendf(sb, "<p class=\"section-tagline\">%s</p>\n", tagline);
 }
 
-static void write_section_footer(String_Builder *sb) {
+static void html_section_close(String_Builder *sb) {
     sb_append_cstr(sb, "</section>\n");
 }
 
-static void write_item_html(String_Builder *sb, Api_Item *item, Type_List *types) {
+static void html_item(String_Builder *sb, Api_Item *item, Type_List *types) {
     sb_appendf(sb, "<div class=\"item\" id=\"%s\">\n", item->name);
     sb_appendf(sb, "<h2>%s</h2>\n", item->name);
     sb_appendf(sb, "<pre class=\"signature\"><code>");
-    highlight_c_code(sb, item->signature, strlen(item->signature), types, item->name);
+    html_code_highlight(sb, item->signature, strlen(item->signature), types, item->name);
     sb_appendf(sb, "</code></pre>\n");
     sb_appendf(sb, "<div class=\"description\">%s</div>\n", item->description);
     sb_appendf(sb, "</div>\n\n");
 }
 
-static void write_llm_header(String_Builder *sb) {
+static void md_header(String_Builder *sb) {
     sb_append_cstr(sb, "# QLeii API Reference\n\n");
     sb_append_cstr(sb, "QLeei is a simple interpreted stack-based language.\n\n");
 }
 
-static void write_item_llm(String_Builder *sb, Api_Item *item) {
+static void md_item(String_Builder *sb, Api_Item *item) {
     sb_appendf(sb, "## %s\n\n", item->name);
     sb_appendf(sb, "%s\n\n", item->description);
     sb_appendf(sb, "```c\n%s\n```\n\n", item->signature);
 }
 
-static void write_group_sidebar_html(String_Builder *sb, Group *group) {
+static void html_sidebar_group(String_Builder *sb, Group *group) {
     if (group->key) {
         sb_appendf(sb, "<details>\n");
         sb_appendf(sb, "<summary>%s (%zu)</summary>\n", group->key, group->count);
@@ -594,25 +594,25 @@ static void write_group_sidebar_html(String_Builder *sb, Group *group) {
     }
 }
 
-static void write_group_content_html(String_Builder *sb, Group *group, Type_List *types) {
+static void html_content_group(String_Builder *sb, Group *group, Type_List *types) {
     if (group->key) {
         sb_appendf(sb, "<details class=\"group\">\n");
         sb_appendf(sb, "<summary>%s</summary>\n", group->key);
         for (size_t j = 0; j < group->count; j++) {
-            write_item_html(sb, &group->items[j], types);
+            html_item(sb, &group->items[j], types);
         }
         sb_appendf(sb, "</details>\n");
     } else {
-        write_item_html(sb, &group->items[0], types);
+        html_item(sb, &group->items[0], types);
     }
 }
 
-static void write_group_llm(String_Builder *sb, Group *group) {
+static void md_group(String_Builder *sb, Group *group) {
     if (group->key) {
         sb_appendf(sb, "### %s\n\n", group->key);
     }
     for (size_t j = 0; j < group->count; j++) {
-        write_item_llm(sb, &group->items[j]);
+        md_item(sb, &group->items[j]);
     }
 }
 
@@ -625,14 +625,14 @@ static bool is_type(const char *signature) {
     return strncmp(signature, "typedef", 7) == 0;
 }
 
-static Group_List build_groups(Api_List *api, bool (*filter)(const char*)) {
+static Group_List group_build(Api_List *api, bool (*filter)(const char*)) {
     Group_List result = {0};
     char key_buf[64];
     
     for (size_t i = 0; i < api->count; i++) {
         if (!filter(api->items[i].signature)) continue;
         
-        const char *key = get_group_key(api->items[i].name, key_buf, sizeof(key_buf));
+        const char *key = group_key(api->items[i].name, key_buf, sizeof(key_buf));
         
         size_t g = 0;
         for (; g < result.count; g++) {
@@ -657,7 +657,7 @@ static Group_List build_groups(Api_List *api, bool (*filter)(const char*)) {
             result.items[i].key = NULL;
         }
     }
-    qsort(result.items, result.count, sizeof(Group), group_compare);
+    qsort(result.items, result.count, sizeof(Group), group_cmp);
     
     return result;
 }
@@ -666,31 +666,31 @@ static void write_html(const char *output_path, Group_List *funcs, Group_List *t
     String_Builder html = {0};
     da_reserve(&html, 64 * 1024);
     
-    write_html_header(&html);
+    html_doc_open(&html);
     
     sb_append_cstr(&html, "<h2>Functions</h2>\n");
     for (size_t i = 0; i < funcs->count; i++) {
-        write_group_sidebar_html(&html, &funcs->items[i]);
+        html_sidebar_group(&html, &funcs->items[i]);
     }
     
     sb_append_cstr(&html, "<h2>Types</h2>\n");
     for (size_t i = 0; i < types->count; i++) {
-        write_group_sidebar_html(&html, &types->items[i]);
+        html_sidebar_group(&html, &types->items[i]);
     }
     
-    write_html_footer(&html);
+    html_main_open(&html);
     
-    write_section_header(&html, "functions", "Functions", "Can you feel? Can you hear me?");
+    html_section_open(&html, "functions", "Functions", "Can you feel? Can you hear me?");
     for (size_t i = 0; i < funcs->count; i++) {
-        write_group_content_html(&html, &funcs->items[i], type_registry);
+        html_content_group(&html, &funcs->items[i], type_registry);
     }
-    write_section_footer(&html);
+    html_section_close(&html);
     
-    write_section_header(&html, "types", "Types", "What does this mean?! What does this mean?! WHAT DOES THIS MEAN?!");
+    html_section_open(&html, "types", "Types", "What does this mean?! What does this mean?! WHAT DOES THIS MEAN?!");
     for (size_t i = 0; i < types->count; i++) {
-        write_group_content_html(&html, &types->items[i], type_registry);
+        html_content_group(&html, &types->items[i], type_registry);
     }
-    write_section_footer(&html);
+    html_section_close(&html);
     
     sb_append_cstr(&html, "</main>\n</div>\n</body>\n</html>\n");
     
@@ -702,16 +702,16 @@ static void write_markdown(const char *output_path, Group_List *funcs, Group_Lis
     String_Builder md = {0};
     da_reserve(&md, 32 * 1024);
     
-    write_llm_header(&md);
+    md_header(&md);
     
     sb_append_cstr(&md, "## Functions\n\n");
     for (size_t i = 0; i < funcs->count; i++) {
-        write_group_llm(&md, &funcs->items[i]);
+        md_group(&md, &funcs->items[i]);
     }
     
     sb_append_cstr(&md, "\n## Types\n\n");
     for (size_t i = 0; i < types->count; i++) {
-        write_group_llm(&md, &types->items[i]);
+        md_group(&md, &types->items[i]);
     }
     
     sb_append_null(&md);
@@ -753,8 +753,8 @@ int main(void) {
     
     mkdir_if_not_exists("docs");
     
-    Group_List funcs = build_groups(&api, is_function);
-    Group_List type_groups = build_groups(&api, is_type);
+    Group_List funcs = group_build(&api, is_function);
+    Group_List type_groups = group_build(&api, is_type);
     
     write_html("docs/index.html", &funcs, &type_groups, &types);
     write_markdown("docs/llm.md", &funcs, &type_groups);
