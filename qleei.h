@@ -1225,7 +1225,7 @@ Qleei_Proc *qleei_procs_find_by_sv_name(Qleei_Procs *haystack, Qleei_String_View
 }
 
 bool qleei_cp_sv_to_buf(Qleei_String_View sv, char *buf, qleei_uisz_t buf_size) {
-  if (sv.len+1 >= buf_size) return false;
+  if (sv.len+1 > buf_size) return false;
   qleei_mem_copy(buf, sv.data, sv.len);
   buf[sv.len] = 0;
   return true;
