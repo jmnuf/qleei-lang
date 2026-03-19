@@ -761,7 +761,7 @@ int main(void) {
         
         write_html_footer(&html);
         
-        write_section_header(&html, "functions", "Functions", "I am error. Just kidding, these actually work.");
+        write_section_header(&html, "functions", "Functions", "Can you feel? Can you hear me?");
         for (size_t i = 0; i < func_groups.count; i++) {
             write_group_content_html(&html, &func_groups.groups[i], &types);
         }
