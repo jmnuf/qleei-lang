@@ -392,21 +392,25 @@ static void write_html_header(String_Builder *sb) {
         "<title>QLeii - Documentation</title>\n"
         "<style>\n"
         "* { box-sizing: border-box; margin: 0; padding: 0; }\n"
-        "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; background: #fff0f5; }\n"
-        ".container { display: flex; min-height: 100vh; }\n"
-        ".sidebar { width: 280px; background: #4a1259; color: #fff; padding: 20px; overflow-y: auto; position: fixed; height: 100vh; }\n"
+        "html { overflow-x: hidden; }\n"
+        "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; background: #fff0f5; overflow-x: hidden; }\n"
+        ".container { display: flex; min-height: 100vh; max-width: 100vw; }\n"
+        ".sidebar { width: 280px; background: #4a1259; color: #fff; padding: 20px; overflow-y: auto; position: fixed; height: 100vh; overflow-x: hidden; }\n"
         ".sidebar h1 { font-size: 1.5rem; margin-bottom: 20px; color: #fff; }\n"
         ".sidebar h2 { font-size: 0.9rem; text-transform: uppercase; color: #ffb6c1; margin: 20px 0 10px; letter-spacing: 1px; }\n"
-        ".sidebar a { color: #fff; text-decoration: none; display: block; padding: 4px 0; font-size: 0.9rem; }\n"
+        ".sidebar a { color: #fff; text-decoration: none; display: block; padding: 4px 0; font-size: 0.9rem; overflow-wrap: break-word; }\n"
         ".sidebar a:hover { color: #ff69b4; }\n"
-        ".main { flex: 1; margin-left: 280px; padding: 40px; }\n"
-        ".item { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 2px 4px rgba(74,18,89,0.1); border: 1px solid #ffb6c1; }\n"
+        ".main { flex: 1; margin-left: 280px; padding: 40px; max-width: calc(100vw - 280px); }\n"
+        ".section-header { color: #4a1259; font-size: 2rem; margin: 40px 0 8px; padding-bottom: 8px; border-bottom: 2px solid #ffb6c1; }\n"
+        ".section-tagline { color: #888; font-style: italic; margin-bottom: 24px; font-size: 0.95rem; }\n"
+        ".section-content { margin-bottom: 20px; }\n"
+        ".item { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 2px 4px rgba(74,18,89,0.1); border: 1px solid #ffb6c1; overflow-x: hidden; }\n"
         ".item h2 { color: #4a1259; font-size: 1.3rem; margin-bottom: 8px; font-family: 'Courier New', monospace; }\n"
-        ".item .signature { background: #0d0d14; padding: 12px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #e0e0e0; overflow-x: auto; margin-bottom: 12px; border: 1px solid #4a1259; }\n"
-        ".item .description { color: #444; }\n"
-        ".item .description p { margin-bottom: 8px; }\n"
-        ".item .description code { background: #1a1a2e; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #f8f0f5; }\n"
-        ".item .description pre { background: #0d0d14; color: #e0e0e0; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 12px 0; }\n"
+        ".item .signature { background: #0d0d14; padding: 12px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #e0e0e0; overflow-x: auto; margin-bottom: 12px; border: 1px solid #4a1259; white-space: pre; }\n"
+        ".item .description { color: #444; word-wrap: break-word; overflow-wrap: break-word; }\n"
+        ".item .description p { margin-bottom: 8px; word-wrap: break-word; overflow-wrap: break-word; }\n"
+        ".item .description code { background: #1a1a2e; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #f8f0f5; word-wrap: break-word; }\n"
+        ".item .description pre { background: #0d0d14; color: #e0e0e0; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 12px 0; white-space: pre-wrap; word-wrap: break-word; }\n"
         ".item .description pre code { background: none; padding: 0; color: inherit; }\n"
         ".syn-kw { color: #ff79c6; font-weight: bold; }\n"
         ".syn-tp { color: #bd93f9; }\n"
@@ -415,7 +419,7 @@ static void write_html_header(String_Builder *sb) {
         ".syn-st { color: #f1fa8c; }\n"
         ".syn-cm { color: #6272a4; font-style: italic; }\n"
         ".syn-cp { color: #8be9fd; }\n"
-        "@media (max-width: 768px) { .sidebar { width: 100%; height: auto; position: relative; } .main { margin-left: 0; } }\n"
+        "@media (max-width: 768px) { html, body { overflow-x: hidden; } .sidebar { width: 100%; height: auto; position: relative; } .main { margin-left: 0; max-width: 100vw; } }\n"
         "</style>\n"
         "</head>\n"
         "<body>\n"
@@ -430,6 +434,16 @@ static void write_html_footer(String_Builder *sb) {
         "</nav>\n"
         "<main class=\"main\">\n"
     );
+}
+
+static void write_section_header(String_Builder *sb, const char *id, const char *title, const char *tagline) {
+    sb_appendf(sb, "<section id=\"%s\">\n", id);
+    sb_appendf(sb, "<h1 class=\"section-header\">%s</h1>\n", title);
+    sb_appendf(sb, "<p class=\"section-tagline\">%s</p>\n", tagline);
+}
+
+static void write_section_footer(String_Builder *sb) {
+    sb_append_cstr(sb, "</section>\n");
 }
 
 static void write_item_html(String_Builder *sb, Api_Item *item) {
@@ -481,9 +495,22 @@ int main(void) {
         
         write_html_footer(&html);
         
+        write_section_header(&html, "functions", "Functions", "I am error. Just kidding, these actually work.");
         for (size_t i = 0; i < api.count; i++) {
-            write_item_html(&html, &api.items[i]);
+            if (strncmp(api.items[i].signature, "static", 6) != 0 &&
+                strncmp(api.items[i].signature, "typedef", 7) != 0) {
+                write_item_html(&html, &api.items[i]);
+            }
         }
+        write_section_footer(&html);
+        
+        write_section_header(&html, "types", "Types", "What does this mean?! What does this mean?! WHAT DOES THIS MEAN?!");
+        for (size_t i = 0; i < api.count; i++) {
+            if (strncmp(api.items[i].signature, "typedef", 7) == 0) {
+                write_item_html(&html, &api.items[i]);
+            }
+        }
+        write_section_footer(&html);
         
         sb_append_cstr(&html, "</main>\n</div>\n</body>\n</html>\n");
         
