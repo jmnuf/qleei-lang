@@ -515,11 +515,14 @@ Qleei_Word_Registry_Item *qleei_word_registry_get_word(Qleei_Word_Registry_Map *
 /**
  * Add or update a word in the registry.
  *
- * @param map Registry to modify.
- * @param word Word to add or update.
- * @param handler Handler to associate with the word.
- * @param user_data User data to pass to the handler.
- * @returns `true` if the word was added or updated successfully, `false` otherwise.
+ * @param map     Registry to insert into or update.
+ * @param word    Null-terminated word name. **The registry does not copy this
+ *                string; the caller must ensure it remains valid and unmodified
+ *                for the entire lifetime of the registry entry.**
+ * @param handler Function to invoke when the word is encountered.
+ * @param user_data Arbitrary pointer forwarded to the handler; may be NULL.
+ * @returns `true` on success, `false` if memory allocation for the backing
+ *          array failed.
  */
 bool qleei_word_registry_set_word(Qleei_Word_Registry_Map *map, const char *word, Qleei_Word_Handler handler, void *user_data);
 
