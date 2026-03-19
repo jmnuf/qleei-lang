@@ -518,7 +518,9 @@ typedef struct {
  */
 Qleei_Proc *qleei_procs_find_by_sv_name(Qleei_Procs *haystack, Qleei_String_View needle);
 
-
+/**
+ * Options passed to custom word handlers, containing the interpreter state.
+ */
 typedef struct {
   void *user_data;
   Qleei_Stack *stack;
@@ -526,8 +528,15 @@ typedef struct {
   QLeei_Token token;
   bool inside_proc;
 } Qleei_Word_Handler_Opt;
+
+/**
+ * Function pointer type for custom word handlers.
+ */
 typedef bool (*Qleei_Word_Handler)(Qleei_Word_Handler_Opt opt);
 
+/**
+ * A key-value pair mapping a word name to its handler and user data.
+ */
 typedef struct {
   const char *key;
   struct {
@@ -536,6 +545,9 @@ typedef struct {
   } val;
 } Qleei_Custom_Word;
 
+/**
+ * A dynamic array of custom word entries.
+ */
 typedef struct {
   Qleei_Custom_Word *items;
   qleei_uisz_t len;
