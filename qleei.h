@@ -1988,6 +1988,10 @@ void qleei_interpreter_clear(Qleei_Interpreter *it) {
   it->lexer = (QLeei_Lexer){0};
   it->stack.len = 0;
   it->words.len = 0;
+  qleei_alist_foreach(Qleei_Proc, proc, &it->procs) {
+    proc->inputs.len = 0;
+    proc->outputs.len = 0;
+  }
   it->procs.len = 0;
   it->done = false;
 }
