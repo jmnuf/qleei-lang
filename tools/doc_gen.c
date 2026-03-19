@@ -20,6 +20,80 @@ typedef struct {
     size_t capacity;
 } Type_List;
 
+typedef struct {
+    char *key;
+    Api_Item *items;
+    size_t count;
+    size_t capacity;
+} Group;
+
+typedef struct {
+    Group *groups;
+    size_t count;
+    size_t capacity;
+} Group_List;
+
+static const char *get_group_key(const char *name) {
+    static char buf[64];
+    
+    if (strncmp(name, "qleei_", 6) == 0) {
+        name = name + 6;
+    } else if (strncmp(name, "QLeei_", 6) == 0) {
+        name = name + 6;
+    } else if (strncmp(name, "Qleei_", 6) == 0) {
+        name = name + 6;
+    }
+    
+    const char *underscore = strchr(name, '_');
+    if (!underscore) return NULL;
+    
+    const char *second = underscore + 1;
+    const char *second_end = strchr(second, '_');
+    
+    if (second_end && (strncmp(second, "words", 5) == 0 || strncmp(second, "word", 4) == 0)) {
+        size_t first_len = underscore - name;
+        size_t second_len = second_end - second;
+        if (first_len + 1 + second_len >= sizeof(buf)) return NULL;
+        memcpy(buf, name, first_len);
+        buf[first_len] = '_';
+        memcpy(buf + first_len + 1, second, second_len);
+        buf[first_len + 1 + second_len] = '\0';
+        return buf;
+    }
+    
+    size_t len = underscore - name;
+    if (len >= sizeof(buf)) return NULL;
+    
+    memcpy(buf, name, len);
+    buf[len] = '\0';
+    return buf;
+}
+
+static void group_list_append(Group_List *list, Group group) {
+    if (list->count >= list->capacity) {
+        list->capacity = list->capacity == 0 ? 16 : list->capacity * 2;
+        list->groups = (Group*)realloc(list->groups, list->capacity * sizeof(Group));
+    }
+    list->groups[list->count++] = group;
+}
+
+static void group_item_append(Group *group, Api_Item item) {
+    if (group->count >= group->capacity) {
+        group->capacity = group->capacity == 0 ? 8 : group->capacity * 2;
+        group->items = (Api_Item*)realloc(group->items, group->capacity * sizeof(Api_Item));
+    }
+    group->items[group->count++] = item;
+}
+
+static int group_compare(const void *a, const void *b) {
+    const Group *ga = (const Group*)a;
+    const Group *gb = (const Group*)b;
+    if (ga->key == NULL && gb->key == NULL) return 0;
+    if (ga->key == NULL) return -1;
+    if (gb->key == NULL) return 1;
+    return strcmp(ga->key, gb->key);
+}
+
 
 
 static char *find_next_symbol_line(const char *content, size_t len, size_t start) {
@@ -467,6 +541,11 @@ static void write_html_header(String_Builder *sb) {
         ".sidebar h2 { font-size: 0.9rem; text-transform: uppercase; color: #ffb6c1; margin: 20px 0 10px; letter-spacing: 1px; }\n"
         ".sidebar a { color: #fff; text-decoration: none; display: block; padding: 4px 0; font-size: 0.9rem; overflow-wrap: break-word; }\n"
         ".sidebar a:hover { color: #ff69b4; }\n"
+        ".sidebar details { margin: 4px 0; }\n"
+        ".sidebar summary { cursor: pointer; padding: 4px 0; font-size: 0.9rem; color: #ffb6c1; user-select: none; }\n"
+        ".sidebar summary:hover { color: #ff69b4; }\n"
+        ".sidebar .group-items { padding-left: 12px; }\n"
+        ".sidebar .group-items a { font-size: 0.8rem; color: #d4a5d4; }\n"
         ".main { flex: 1; margin-left: 280px; padding: 40px; max-width: calc(100vw - 280px); }\n"
         ".section-header { color: #4a1259; font-size: 2rem; margin: 40px 0 8px; padding-bottom: 8px; border-bottom: 2px solid #ffb6c1; }\n"
         ".section-tagline { color: #888; font-style: italic; margin-bottom: 24px; font-size: 0.95rem; }\n"
@@ -479,6 +558,9 @@ static void write_html_header(String_Builder *sb) {
         ".item .description code { background: #1a1a2e; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #f8f0f5; word-wrap: break-word; }\n"
         ".item .description pre { background: #0d0d14; color: #e0e0e0; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 12px 0; white-space: pre-wrap; word-wrap: break-word; }\n"
         ".item .description pre code { background: none; padding: 0; color: inherit; }\n"
+        ".group { margin-bottom: 32px; }\n"
+        ".group > summary { cursor: pointer; color: #4a1259; font-size: 1.2rem; font-weight: 600; margin-bottom: 16px; list-style-position: outside; }\n"
+        ".group > summary:hover { color: #ff69b4; }\n"
         ".syn-kw { color: #ff79c6; font-weight: bold; }\n"
         ".syn-tp { color: #bd93f9; }\n"
         ".syn-fn { color: #50fa7b; }\n"
@@ -536,6 +618,52 @@ static void write_item_llm(String_Builder *sb, Api_Item *item) {
     sb_appendf(sb, "```c\n%s\n```\n\n", item->signature);
 }
 
+static void write_group_sidebar_html(String_Builder *sb, Group *group) {
+    if (group->key) {
+        sb_appendf(sb, "<details>\n");
+        sb_appendf(sb, "<summary>%s (%zu)</summary>\n", group->key, group->count);
+        sb_appendf(sb, "<div class=\"group-items\">\n");
+        for (size_t j = 0; j < group->count; j++) {
+            sb_appendf(sb, "<a href=\"#%s\">%s</a>\n", group->items[j].name, group->items[j].name);
+        }
+        sb_appendf(sb, "</div>\n");
+        sb_appendf(sb, "</details>\n");
+    } else {
+        sb_appendf(sb, "<a href=\"#%s\">%s</a>\n", group->items[0].name, group->items[0].name);
+    }
+}
+
+static void write_group_content_html(String_Builder *sb, Group *group, Type_List *types) {
+    if (group->key) {
+        sb_appendf(sb, "<details class=\"group\">\n");
+        sb_appendf(sb, "<summary>%s</summary>\n", group->key);
+        for (size_t j = 0; j < group->count; j++) {
+            write_item_html(sb, &group->items[j], types);
+        }
+        sb_appendf(sb, "</details>\n");
+    } else {
+        write_item_html(sb, &group->items[0], types);
+    }
+}
+
+static void write_group_llm(String_Builder *sb, Group *group) {
+    if (group->key) {
+        sb_appendf(sb, "### %s\n\n", group->key);
+    }
+    for (size_t j = 0; j < group->count; j++) {
+        write_item_llm(sb, &group->items[j]);
+    }
+}
+
+static bool is_function(const char *signature) {
+    return strncmp(signature, "static", 6) != 0 &&
+           strncmp(signature, "typedef", 7) != 0;
+}
+
+static bool is_type(const char *signature) {
+    return strncmp(signature, "typedef", 7) == 0;
+}
+
 int main(void) {
     Api_List api = {0};
     
@@ -543,7 +671,7 @@ int main(void) {
     
     Type_List types = {0};
     for (size_t i = 0; i < api.count; i++) {
-        if (strncmp(api.items[i].signature, "typedef", 7) == 0) {
+        if (is_type(api.items[i].signature)) {
             if (types.count >= types.capacity) {
                 types.capacity = types.capacity == 0 ? 32 : types.capacity * 2;
                 types.names = (const char**)realloc(types.names, types.capacity * sizeof(const char*));
@@ -554,41 +682,94 @@ int main(void) {
     
     mkdir_if_not_exists("docs");
     
+    Group_List func_groups = {0};
+    Group_List type_groups = {0};
+    
+    for (size_t i = 0; i < api.count; i++) {
+        if (is_function(api.items[i].signature)) {
+            const char *key = get_group_key(api.items[i].name);
+            
+            size_t g = 0;
+            for (; g < func_groups.count; g++) {
+                if ((key == NULL && func_groups.groups[g].key == NULL) ||
+                    (key != NULL && func_groups.groups[g].key != NULL && strcmp(key, func_groups.groups[g].key) == 0)) {
+                    break;
+                }
+            }
+            
+            if (g >= func_groups.count) {
+                Group new_group = {0};
+                new_group.key = key ? strdup(key) : NULL;
+                group_list_append(&func_groups, new_group);
+            }
+            
+            group_item_append(&func_groups.groups[g], api.items[i]);
+        }
+    }
+    
+    for (size_t i = 0; i < func_groups.count; i++) {
+        if (func_groups.groups[i].count <= 1) {
+            free(func_groups.groups[i].key);
+            func_groups.groups[i].key = NULL;
+        }
+    }
+    qsort(func_groups.groups, func_groups.count, sizeof(Group), group_compare);
+    
+    for (size_t i = 0; i < api.count; i++) {
+        if (is_type(api.items[i].signature)) {
+            const char *key = get_group_key(api.items[i].name);
+            
+            size_t g = 0;
+            for (; g < type_groups.count; g++) {
+                if ((key == NULL && type_groups.groups[g].key == NULL) ||
+                    (key != NULL && type_groups.groups[g].key != NULL && strcmp(key, type_groups.groups[g].key) == 0)) {
+                    break;
+                }
+            }
+            
+            if (g >= type_groups.count) {
+                Group new_group = {0};
+                new_group.key = key ? strdup(key) : NULL;
+                group_list_append(&type_groups, new_group);
+            }
+            
+            group_item_append(&type_groups.groups[g], api.items[i]);
+        }
+    }
+    
+    for (size_t i = 0; i < type_groups.count; i++) {
+        if (type_groups.groups[i].count <= 1) {
+            free(type_groups.groups[i].key);
+            type_groups.groups[i].key = NULL;
+        }
+    }
+    qsort(type_groups.groups, type_groups.count, sizeof(Group), group_compare);
+    
     {
         String_Builder html = {0};
         write_html_header(&html);
         
         sb_append_cstr(&html, "<h2>Functions</h2>\n");
-        for (size_t i = 0; i < api.count; i++) {
-            if (strncmp(api.items[i].signature, "static", 6) != 0 &&
-                strncmp(api.items[i].signature, "typedef", 7) != 0) {
-                sb_appendf(&html, "<a href=\"#%s\">%s</a>\n", api.items[i].name, api.items[i].name);
-            }
+        for (size_t i = 0; i < func_groups.count; i++) {
+            write_group_sidebar_html(&html, &func_groups.groups[i]);
         }
         
         sb_append_cstr(&html, "<h2>Types</h2>\n");
-        for (size_t i = 0; i < api.count; i++) {
-            if (strncmp(api.items[i].signature, "typedef", 7) == 0) {
-                sb_appendf(&html, "<a href=\"#%s\">%s</a>\n", api.items[i].name, api.items[i].name);
-            }
+        for (size_t i = 0; i < type_groups.count; i++) {
+            write_group_sidebar_html(&html, &type_groups.groups[i]);
         }
         
         write_html_footer(&html);
         
         write_section_header(&html, "functions", "Functions", "I am error. Just kidding, these actually work.");
-        for (size_t i = 0; i < api.count; i++) {
-            if (strncmp(api.items[i].signature, "static", 6) != 0 &&
-                strncmp(api.items[i].signature, "typedef", 7) != 0) {
-                write_item_html(&html, &api.items[i], &types);
-            }
+        for (size_t i = 0; i < func_groups.count; i++) {
+            write_group_content_html(&html, &func_groups.groups[i], &types);
         }
         write_section_footer(&html);
         
         write_section_header(&html, "types", "Types", "What does this mean?! What does this mean?! WHAT DOES THIS MEAN?!");
-        for (size_t i = 0; i < api.count; i++) {
-            if (strncmp(api.items[i].signature, "typedef", 7) == 0) {
-                write_item_html(&html, &api.items[i], &types);
-            }
+        for (size_t i = 0; i < type_groups.count; i++) {
+            write_group_content_html(&html, &type_groups.groups[i], &types);
         }
         write_section_footer(&html);
         
@@ -602,14 +783,32 @@ int main(void) {
         String_Builder llm = {0};
         write_llm_header(&llm);
         
-        for (size_t i = 0; i < api.count; i++) {
-            write_item_llm(&llm, &api.items[i]);
+        sb_append_cstr(&llm, "## Functions\n\n");
+        for (size_t i = 0; i < func_groups.count; i++) {
+            write_group_llm(&llm, &func_groups.groups[i]);
+        }
+        
+        sb_append_cstr(&llm, "\n## Types\n\n");
+        for (size_t i = 0; i < type_groups.count; i++) {
+            write_group_llm(&llm, &type_groups.groups[i]);
         }
         
         sb_append_null(&llm);
         write_entire_file("docs/llm.md", llm.items, llm.count - 1);
         sb_free(llm);
     }
+    
+    for (size_t i = 0; i < func_groups.count; i++) {
+        free(func_groups.groups[i].key);
+        free(func_groups.groups[i].items);
+    }
+    free(func_groups.groups);
+    
+    for (size_t i = 0; i < type_groups.count; i++) {
+        free(type_groups.groups[i].key);
+        free(type_groups.groups[i].items);
+    }
+    free(type_groups.groups);
     
     for (size_t i = 0; i < api.count; i++) {
         free(api.items[i].name);
