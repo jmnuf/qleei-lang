@@ -1250,13 +1250,6 @@ bool qleei_value_kind_list_append(Qleei_Value_Kind **items, qleei_uisz_t *cap, q
   return qleei_list_append((void**)items, sizeof(Qleei_Value_Kind), cap, len, &item);
 }
 
-/**
- * Finds a procedure with the given name in a list of procedures.
- *
- * @param haystack List of procedures to search.
- * @param needle Name of the procedure to find as a Qleei_String_View.
- * @returns Pointer to the matching Qleei_Proc if found, NULL otherwise.
- */
 Qleei_Proc *qleei_procs_find_by_sv_name(Qleei_Procs *haystack, Qleei_String_View needle) {
   qleei_alist_foreach(Qleei_Proc, it, haystack) {
     if (qleei_sv_eq_sv(it->name_sv, needle)) {
