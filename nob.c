@@ -294,11 +294,12 @@ int main(int argc, char **argv) {
         if (!sv_end_with(sv_from_cstr(file_path), ".ql")) continue;
         cmd_append(&cmd, native_output);
         cmd_append(&cmd, nob_temp_sprintf("%s/%s", folder_path, file_path));
+        printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
         bool ok = cmd_run(&cmd);
         Map_set_key(&m, file_path, ok);
       }
 
-      printf("\n==================================================\n");
+      printf("\n🛹==================================================🛹\n");
       printf("| Results:\n");
       bool ok = true;
       da_foreach(Map_Result_Item, pair, &m) {
@@ -311,7 +312,7 @@ int main(int argc, char **argv) {
         }
         printf(" - %s\n", pair->key);
       }
-      printf("==================================================\n");
+      printf("🛹==================================================🛹\n");
       if (m.items) da_free(m);
       if (!ok) return 1;
     } else {
