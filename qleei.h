@@ -426,7 +426,23 @@ typedef struct {
  * @param s Stack whose contents will be printed.
  */
 void qleei_print_stack(Qleei_Stack *s);
+
+/**
+ * Push an item onto the stack.
+ *
+ * @param stack Stack to push onto.
+ * @param item Item to push.
+ * @returns `true` if the item was pushed successfully, `false` if allocation failed.
+ */
 bool qleei_stack_push(Qleei_Stack *stack, Qleei_Value_Item item);
+
+/**
+ * Pop an item from the stack.
+ *
+ * @param stack Stack to pop from.
+ * @param item Destination for the popped item.
+ * @returns `true` if an item was popped, `false` if the stack was empty.
+ */
 bool qleei_stack_pop(Qleei_Stack *stack, Qleei_Value_Item *item);
 
 typedef struct {
@@ -454,6 +470,13 @@ typedef struct {
   qleei_uisz_t cap;
 } Qleei_Procs;
 
+/**
+ * Find a procedure by name in a list of procedures.
+ *
+ * @param haystack List of procedures to search.
+ * @param needle Name to search for.
+ * @returns Pointer to the matching procedure, or `NULL` if not found.
+ */
 Qleei_Proc *qleei_procs_find_by_sv_name(Qleei_Procs *haystack, Qleei_String_View needle);
 
 
@@ -480,8 +503,33 @@ typedef struct {
   qleei_uisz_t cap;
 } Qleei_Word_Registry_Map;
 
+/**
+ * Get a word from the registry.
+ *
+ * @param map Registry to search.
+ * @param word Word to look up.
+ * @returns Pointer to the registry item, or `NULL` if not found.
+ */
 Qleei_Word_Registry_Item *qleei_word_registry_get_word(Qleei_Word_Registry_Map *map, const char *word);
+
+/**
+ * Add or update a word in the registry.
+ *
+ * @param map Registry to modify.
+ * @param word Word to add or update.
+ * @param handler Handler to associate with the word.
+ * @param user_data User data to pass to the handler.
+ * @returns `true` if the word was added or updated successfully, `false` otherwise.
+ */
 bool qleei_word_registry_set_word(Qleei_Word_Registry_Map *map, const char *word, Qleei_Word_Handler handler, void *user_data);
+
+/**
+ * Remove a word from the registry.
+ *
+ * @param map Registry to modify.
+ * @param word Word to remove.
+ * @returns `true` if the word was removed, `false` if not found.
+ */
 bool qleei_word_registry_del_word(Qleei_Word_Registry_Map *map, const char *word);
 
 typedef struct {
@@ -492,16 +540,81 @@ typedef struct {
   bool   done;
 } Qleei_Interpreter;
 
+/**
+ * Initialize the interpreter's lexer.
+ *
+ * @param it Interpreter to initialize.
+ * @param input_path Path for error messages (may be NULL).
+ * @param buffer Input buffer to lex.
+ * @param buf_size Size of the input buffer.
+ */
 void qleei_interpreter_lexer_init(Qleei_Interpreter *it, const char *input_path, const char *buffer, qleei_uisz_t buf_size);
+
+/**
+ * Register a word with a handler.
+ *
+ * @param it Interpreter to register with.
+ * @param word Word to register.
+ * @param handler Function to call when the word is encountered.
+ * @returns `true` if registered successfully, `false` otherwise.
+ */
 bool qleei_interpreter_register_word(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler);
+
+/**
+ * Register a word with a handler and user data.
+ *
+ * @param it Interpreter to register with.
+ * @param word Word to register.
+ * @param handler Function to call when the word is encountered.
+ * @param user_data Data to pass to the handler.
+ * @returns `true` if registered successfully, `false` otherwise.
+ */
 bool qleei_interpreter_register_word_with_data(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler, void *user_data);
+
+/**
+ * Unregister a word.
+ *
+ * @param it Interpreter to unregister from.
+ * @param word Word to remove.
+ * @returns `true` if removed successfully, `false` if not found.
+ */
 bool qleei_interpreter_unregister_word(Qleei_Interpreter *it, const char *word);
 
+/**
+ * Execute a single token.
+ *
+ * @param it Interpreter to step.
+ * @returns `true` if the token was executed successfully, `false` on error.
+ */
 bool qleei_interpreter_step(Qleei_Interpreter *it);
+
+/**
+ * Run the interpreter until completion or error.
+ *
+ * @param it Interpreter to run.
+ * @returns `true` if execution completed, `false` on error.
+ */
 bool qleei_interpreter_exec(Qleei_Interpreter *it);
 
+/**
+ * Reset the interpreter to its initial state.
+ *
+ * @param it Interpreter to reset.
+ */
 void qleei_interpreter_reset(Qleei_Interpreter *it);
+
+/**
+ * Clear all procedures and registered words from the interpreter.
+ *
+ * @param it Interpreter to clear.
+ */
 void qleei_interpreter_clear(Qleei_Interpreter *it);
+
+/**
+ * Free all memory allocated by the interpreter.
+ *
+ * @param it Interpreter to free.
+ */
 void qleei_interpreter_free(Qleei_Interpreter *it);
 
 bool qleei_interpret_buffer(const char *buffer_source_path, const char *buffer, qleei_uisz_t buf_size);
