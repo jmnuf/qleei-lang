@@ -36,8 +36,12 @@ typedef struct {
   qleei_uisz_t len;
 } Qleei_String_View;
 
+#define QLEEI_MAX_WORD_SIZE 64
+
 #define QLEEI_SV_Fmt_Str     "%.*s"
 #define QLEEI_SV_Fmt_Arg(sv) (int)sv.len, sv.data
+
+bool qleei_cp_sv_to_buf(Qleei_String_View sv, char *buf, qleei_uisz_t buf_size);
 
 /**
  * Create a Qleei_String_View that references a null-terminated C string.
@@ -495,53 +499,26 @@ typedef struct {
     Qleei_Word_Handler handler;
     void *user_data;
   } val;
-} Qleei_Word_Registry_Item;
+} Qleei_Custom_Word;
 
 typedef struct {
-  Qleei_Word_Registry_Item *items;
+  Qleei_Custom_Word *items;
   qleei_uisz_t len;
   qleei_uisz_t cap;
-} Qleei_Word_Registry_Map;
+} Qleei_Custom_Words;
 
-/**
- * Get a word from the registry.
- *
- * @param map Registry to search.
- * @param word Word to look up.
- * @returns Pointer to the registry item, or `NULL` if not found.
- */
-Qleei_Word_Registry_Item *qleei_word_registry_get_word(Qleei_Word_Registry_Map *map, const char *word);
-
-/**
- * Add or update a word in the registry.
- *
- * @param map     Registry to insert into or update.
- * @param word    Null-terminated word name. **The registry does not copy this
- *                string; the caller must ensure it remains valid and unmodified
- *                for the entire lifetime of the registry entry.**
- * @param handler Function to invoke when the word is encountered.
- * @param user_data Arbitrary pointer forwarded to the handler; may be NULL.
- * @returns `true` on success, `false` if memory allocation for the backing
- *          array failed.
- */
-bool qleei_word_registry_set_word(Qleei_Word_Registry_Map *map, const char *word, Qleei_Word_Handler handler, void *user_data);
-
-/**
- * Remove a word from the registry.
- *
- * @param map Registry to modify.
- * @param word Word to remove.
- * @returns `true` if the word was removed, `false` if not found.
- */
-bool qleei_word_registry_del_word(Qleei_Word_Registry_Map *map, const char *word);
+bool qleei_custom_words_add(Qleei_Custom_Words *w, const char *word, Qleei_Word_Handler handler, void *user_data);
+bool qleei_custom_words_remove(Qleei_Custom_Words *w, const char *word);
 
 typedef struct {
   QLeei_Lexer  lexer;
   Qleei_Stack  stack;
-  Qleei_Word_Registry_Map words;
+  Qleei_Custom_Words words;
   Qleei_Procs  procs;
   bool   done;
 } Qleei_Interpreter;
+
+Qleei_Word_Handler qleei__get_word_handler(Qleei_Interpreter *it, Qleei_String_View sv, void **user_data_out);
 
 /**
  * Initialize the interpreter's lexer.
@@ -553,34 +530,8 @@ typedef struct {
  */
 void qleei_interpreter_lexer_init(Qleei_Interpreter *it, const char *input_path, const char *buffer, qleei_uisz_t buf_size);
 
-/**
- * Register a word with a handler.
- *
- * @param it Interpreter to register with.
- * @param word Word to register.
- * @param handler Function to call when the word is encountered.
- * @returns `true` if registered successfully, `false` otherwise.
- */
 bool qleei_interpreter_register_word(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler);
-
-/**
- * Register a word with a handler and user data.
- *
- * @param it Interpreter to register with.
- * @param word Word to register.
- * @param handler Function to call when the word is encountered.
- * @param user_data Data to pass to the handler.
- * @returns `true` if registered successfully, `false` otherwise.
- */
 bool qleei_interpreter_register_word_with_data(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler, void *user_data);
-
-/**
- * Unregister a word.
- *
- * @param it Interpreter to unregister from.
- * @param word Word to remove.
- * @returns `true` if removed successfully, `false` if not found.
- */
 bool qleei_interpreter_unregister_word(Qleei_Interpreter *it, const char *word);
 
 /**
@@ -603,8 +554,11 @@ bool qleei_interpreter_exec(Qleei_Interpreter *it);
  * Reset the interpreter to its initial state.
  *
  * @param it Interpreter to reset.
+ * @param input_path Path for error messages (may be NULL).
+ * @param buffer Input buffer to lex.
+ * @param buf_size Size of the input buffer.
  */
-void qleei_interpreter_reset(Qleei_Interpreter *it);
+void qleei_interpreter_reset(Qleei_Interpreter *it, const char *input_path, const char *buffer, qleei_uisz_t buf_size);
 
 /**
  * Clear all procedures and registered words from the interpreter.
@@ -892,6 +846,32 @@ void qleei_list_free(void **items, qleei_uisz_t *capacity, qleei_uisz_t *length)
   *length = 0;
 }
 
+static Qleei_Custom_Word QLEEI_BUILTIN_WORDS[] = {
+  { "print_number",   { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "print_uisz",     { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "print_ptr",      { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "print_char",     { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "print_bool",     { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "print_stack",    { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "print_zstr",     { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "dup",            { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "over",           { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "drop",           { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "rot2",           { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "swap2",          { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "swap3",          { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "rot3",           { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "assert_empty",   { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "mem_alloc",      { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "mem_free",       { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "mem_save_si8",   { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "mem_save_ui8",   { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "mem_load_ui8",   { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "mem_save_ui32",  { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+  { "mem_load_ui32",  { .handler = (Qleei_Word_Handler)1, .user_data = NULL } },
+};
+static const qleei_uisz_t QLEEI_BUILTIN_WORD_COUNT = sizeof(QLEEI_BUILTIN_WORDS) / sizeof(QLEEI_BUILTIN_WORDS[0]);
+
 bool qleei_stack_push(Qleei_Stack *stack, Qleei_Value_Item item) {
   return qleei_alist_append(stack, &item);
 }
@@ -970,56 +950,68 @@ Qleei_Proc *qleei_procs_find_by_sv_name(Qleei_Procs *haystack, Qleei_String_View
   return NULL;
 }
 
-
-/*
- * Find a word handler in a registry of words with handlers.
- *
- * @param map Registry of words to search through.
- * @param word The word for whose handler we are looking forl
- * @returns Pointer to the matching Qleei_Word_Registry_Item if found, NULL otherwise.
- */
-Qleei_Word_Registry_Item *qleei_word_registry_get_word(Qleei_Word_Registry_Map *map, const char *word) {
-  if (map == NULL || word == NULL) return NULL;
-
-  qleei_alist_foreach(Qleei_Word_Registry_Item, pair, map) {
-    if (qleei_zstr_eq(pair->key, word)) return pair;
-  }
-  return NULL;
-}
-
-
-bool qleei_word_registry_set_word(Qleei_Word_Registry_Map *map, const char *word, Qleei_Word_Handler handler, void *user_data) {
-  if (map == NULL || word == NULL || handler == NULL) return NULL;
-
-  Qleei_Word_Registry_Item *existing = qleei_word_registry_get_word(map, word);
-  if (existing != NULL) {
-    existing->val.handler = handler;
-    existing->val.user_data = user_data;
-    return true;
-  }
-  Qleei_Word_Registry_Item item = {
-    .key = word,
-    .val = { .handler = handler, .user_data = user_data },
-  };
-  if (!qleei_alist_append(map, &item)) return false;
+bool qleei_cp_sv_to_buf(Qleei_String_View sv, char *buf, qleei_uisz_t buf_size) {
+  if (sv.len >= buf_size) return false;
+  qleei_mem_copy(buf, sv.data, sv.len);
+  buf[sv.len] = 0;
   return true;
 }
 
-bool qleei_word_registry_del_word(Qleei_Word_Registry_Map *map, const char *word) {
-  if (map == NULL || word == NULL) return false;
-  bool found = false;
+static bool qleei_builtin_word_exists(Qleei_String_View sv) {
+  char buf[QLEEI_MAX_WORD_SIZE];
+  if (!qleei_cp_sv_to_buf(sv, buf, sizeof(buf))) return false;
+  for (qleei_uisz_t i = 0; i < QLEEI_BUILTIN_WORD_COUNT; i++) {
+    if (qleei_zstr_eq(QLEEI_BUILTIN_WORDS[i].key, buf)) return true;
+  }
+  return false;
+}
 
-  for (qleei_uisz_t i = map->len; i > 0; --i) {
-    Qleei_Word_Registry_Item item = map->items[i - 1];
-    if (qleei_zstr_eq(item.key, word)) {
-      found = true;
-      if (i < map->len) map->items[i - 1] = map->items[map->len - 1];
-      map->len--;
-      break;
+#define QLEEI_BUILTIN_WORD_HANDLER ((Qleei_Word_Handler)1)
+
+Qleei_Word_Handler qleei__get_word_handler(Qleei_Interpreter *it, Qleei_String_View sv, void **user_data_out) {
+  char buf[QLEEI_MAX_WORD_SIZE];
+  if (!qleei_cp_sv_to_buf(sv, buf, sizeof(buf))) return NULL;
+
+  for (qleei_uisz_t i = 0; i < QLEEI_BUILTIN_WORD_COUNT; i++) {
+    if (qleei_zstr_eq(QLEEI_BUILTIN_WORDS[i].key, buf)) {
+      if (user_data_out) *user_data_out = QLEEI_BUILTIN_WORDS[i].val.user_data;
+      return QLEEI_BUILTIN_WORDS[i].val.handler;
     }
   }
 
-  return found;
+  for (qleei_uisz_t i = 0; i < it->words.len; i++) {
+    if (qleei_zstr_eq(it->words.items[i].key, buf)) {
+      if (user_data_out) *user_data_out = it->words.items[i].val.user_data;
+      return it->words.items[i].val.handler;
+    }
+  }
+
+  return NULL;
+}
+
+bool qleei_custom_words_add(Qleei_Custom_Words *w, const char *word, Qleei_Word_Handler handler, void *user_data) {
+  if (w == NULL || word == NULL || handler == NULL) return false;
+  for (qleei_uisz_t i = 0; i < w->len; i++) {
+    if (qleei_zstr_eq(w->items[i].key, word)) {
+      w->items[i].val.handler = handler;
+      w->items[i].val.user_data = user_data;
+      return true;
+    }
+  }
+  Qleei_Custom_Word item = { .key = word, .val = { .handler = handler, .user_data = user_data } };
+  return qleei_alist_append(w, &item);
+}
+
+bool qleei_custom_words_remove(Qleei_Custom_Words *w, const char *word) {
+  if (w == NULL || word == NULL) return false;
+  for (qleei_uisz_t i = w->len; i > 0; i--) {
+    if (qleei_zstr_eq(w->items[i - 1].key, word)) {
+      if (i < w->len) w->items[i - 1] = w->items[w->len - 1];
+      w->len--;
+      return true;
+    }
+  }
+  return false;
 }
 
 
@@ -1343,6 +1335,10 @@ bool qleei_parse_proc(Qleei_Interpreter *it) {
   }
 
   Qleei_String_View name_sv = l->token.string;
+  if (qleei__get_word_handler(it, name_sv, NULL) != NULL) {
+    qleei_loc_printfn(l->token.loc, "[ERROR] Cannot define procedure with name '"QLEEI_SV_Fmt_Str"': name conflicts with built-in or custom word", QLEEI_SV_Fmt_Arg(name_sv));
+    return false;
+  }
   Qleei_Proc proc = {0};
   proc.name_sv = name_sv;
 
@@ -1789,23 +1785,20 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
     }
 
     {
-      char word[t.string.len+1];
-      qleei_mem_copy(word, t.string.data, t.string.len);
-      word[t.string.len] = 0;
-      Qleei_Word_Registry_Item *item = qleei_word_registry_get_word(&it->words, word);
-      if (item != NULL) {
+      void *user_data = NULL;
+      Qleei_Word_Handler h = qleei__get_word_handler(it, sv, &user_data);
+      if (h != NULL && h != QLEEI_BUILTIN_WORD_HANDLER) {
         Qleei_Word_Handler_Opt handler_opt = {
           .token = t,
           .stack = stack,
           .procs = &it->procs,
           .inside_proc = inside_of_proc,
-          .user_data = item->val.user_data,
+          .user_data = user_data,
         };
-        if (!item->val.handler(handler_opt)) return false;
+        if (!h(handler_opt)) return false;
         return true;
       }
     }
-
 
     {
       Qleei_Proc *proc = qleei_procs_find_by_sv_name(&it->procs, sv);
@@ -2030,15 +2023,17 @@ void qleei_interpreter_free(Qleei_Interpreter *it) {
 }
 
 bool qleei_interpreter_register_word(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler) {
-  return qleei_word_registry_set_word(&it->words, word, handler, NULL);
+  if (qleei_builtin_word_exists(qleei_sv_from_zstr(word))) return false;
+  return qleei_custom_words_add(&it->words, word, handler, NULL);
 }
 
 bool qleei_interpreter_register_word_with_data(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler, void *user_data) {
-  return qleei_word_registry_set_word(&it->words, word, handler, user_data);
+  if (qleei_builtin_word_exists(qleei_sv_from_zstr(word))) return false;
+  return qleei_custom_words_add(&it->words, word, handler, user_data);
 }
 
 bool qleei_interpreter_unregister_word(Qleei_Interpreter *it, const char *word) {
-  return qleei_word_registry_del_word(&it->words, word);
+  return qleei_custom_words_remove(&it->words, word);
 }
 
 bool qleei_interpreter_exec(Qleei_Interpreter *it) {
