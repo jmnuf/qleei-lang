@@ -41,6 +41,14 @@ typedef struct {
 #define QLEEI_SV_Fmt_Str     "%.*s"
 #define QLEEI_SV_Fmt_Arg(sv) (int)sv.len, sv.data
 
+/**
+ * Copy a string view to a fixed-size buffer with null termination.
+ *
+ * @param sv String view to copy.
+ * @param buf Destination buffer.
+ * @param buf_size Size of the destination buffer.
+ * @returns `true` if copied successfully, `false` if sv.len >= buf_size.
+ */
 bool qleei_cp_sv_to_buf(Qleei_String_View sv, char *buf, qleei_uisz_t buf_size);
 
 /**
@@ -507,7 +515,24 @@ typedef struct {
   qleei_uisz_t cap;
 } Qleei_Custom_Words;
 
+/**
+ * Add or update a word in the custom words registry.
+ *
+ * @param w Registry to insert into or update.
+ * @param word Null-terminated word name (must not be a builtin).
+ * @param handler Function to invoke when the word is encountered.
+ * @param user_data Arbitrary pointer forwarded to the handler; may be NULL.
+ * @returns `true` on success, `false` if allocation failed or word is NULL/handler is NULL.
+ */
 bool qleei_custom_words_add(Qleei_Custom_Words *w, const char *word, Qleei_Word_Handler handler, void *user_data);
+
+/**
+ * Remove a word from the custom words registry.
+ *
+ * @param w Registry to modify.
+ * @param word Word to remove.
+ * @returns `true` if the word was removed, `false` if not found.
+ */
 bool qleei_custom_words_remove(Qleei_Custom_Words *w, const char *word);
 
 typedef struct {
@@ -517,8 +542,6 @@ typedef struct {
   Qleei_Procs  procs;
   bool   done;
 } Qleei_Interpreter;
-
-Qleei_Word_Handler qleei__get_word_handler(Qleei_Interpreter *it, Qleei_String_View sv, void **user_data_out);
 
 /**
  * Initialize the interpreter's lexer.
@@ -530,8 +553,34 @@ Qleei_Word_Handler qleei__get_word_handler(Qleei_Interpreter *it, Qleei_String_V
  */
 void qleei_interpreter_lexer_init(Qleei_Interpreter *it, const char *input_path, const char *buffer, qleei_uisz_t buf_size);
 
+/**
+ * Register a word with a handler.
+ *
+ * @param it Interpreter to register with.
+ * @param word Word to register (must not be a builtin).
+ * @param handler Function to call when the word is encountered.
+ * @returns `true` if registered successfully, `false` if word is a builtin or on error.
+ */
 bool qleei_interpreter_register_word(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler);
+
+/**
+ * Register a word with a handler and user data.
+ *
+ * @param it Interpreter to register with.
+ * @param word Word to register (must not be a builtin).
+ * @param handler Function to call when the word is encountered.
+ * @param user_data Data to pass to the handler.
+ * @returns `true` if registered successfully, `false` if word is a builtin or on error.
+ */
 bool qleei_interpreter_register_word_with_data(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler, void *user_data);
+
+/**
+ * Unregister a word.
+ *
+ * @param it Interpreter to unregister from.
+ * @param word Word to remove.
+ * @returns `true` if removed successfully, `false` if not found.
+ */
 bool qleei_interpreter_unregister_word(Qleei_Interpreter *it, const char *word);
 
 /**
@@ -574,6 +623,14 @@ void qleei_interpreter_clear(Qleei_Interpreter *it);
  */
 void qleei_interpreter_free(Qleei_Interpreter *it);
 
+/**
+ * Interpret a buffer as Qleei source and execute it until the program completes or an error occurs.
+ *
+ * @param buffer_source_path Path used for location reporting (may be NULL).
+ * @param buffer Pointer to the source buffer to interpret.
+ * @param buf_size Size in bytes of the source buffer.
+ * @returns `true` if interpretation ran to completion without error, `false` otherwise.
+ */
 bool qleei_interpret_buffer(const char *buffer_source_path, const char *buffer, qleei_uisz_t buf_size);
 
 /**
@@ -700,6 +757,17 @@ void qleei_printfn(const char *fmt, ...);
 #endif // _QLEEI_H
 
 #ifdef QLEEI_IMPLEMENTATION
+
+/**
+ * Get the handler for a word, checking builtins then custom words.
+ *
+ * @param it Interpreter containing custom words registry.
+ * @param sv Word to look up.
+ * @param user_data_out If not NULL, receives the word's user_data on match.
+ * @returns Handler pointer, `QLEEI_BUILTIN_WORD_HANDLER` for builtins, or NULL if not found.
+ */
+Qleei_Word_Handler qleei__get_word_handler(Qleei_Interpreter *it, Qleei_String_View sv, void **user_data_out);
+
 
 Qleei_String_View qleei_sv_from_zstr(const char *zstr) {
   Qleei_String_View sv = {0};
@@ -951,14 +1019,14 @@ Qleei_Proc *qleei_procs_find_by_sv_name(Qleei_Procs *haystack, Qleei_String_View
 }
 
 bool qleei_cp_sv_to_buf(Qleei_String_View sv, char *buf, qleei_uisz_t buf_size) {
-  if (sv.len >= buf_size) return false;
+  if (sv.len+1 >= buf_size) return false;
   qleei_mem_copy(buf, sv.data, sv.len);
   buf[sv.len] = 0;
   return true;
 }
 
 static bool qleei_builtin_word_exists(Qleei_String_View sv) {
-  char buf[QLEEI_MAX_WORD_SIZE];
+  char buf[QLEEI_MAX_WORD_SIZE+1];// +1 for NULL terminator
   if (!qleei_cp_sv_to_buf(sv, buf, sizeof(buf))) return false;
   for (qleei_uisz_t i = 0; i < QLEEI_BUILTIN_WORD_COUNT; i++) {
     if (qleei_zstr_eq(QLEEI_BUILTIN_WORDS[i].key, buf)) return true;
