@@ -1,3 +1,4 @@
+#define NOB_DA_INIT_CAP 8
 #define NOB_IMPLEMENTATION
 #define NOB_STRIP_PREFIX
 #include "../nob.h"
@@ -15,7 +16,7 @@ typedef struct {
 } Api_List;
 
 typedef struct {
-    const char **names;
+    const char **items;
     size_t count;
     size_t capacity;
 } Type_List;
@@ -28,14 +29,12 @@ typedef struct {
 } Group;
 
 typedef struct {
-    Group *groups;
+    Group *items;
     size_t count;
     size_t capacity;
 } Group_List;
 
-static const char *get_group_key(const char *name) {
-    static char buf[64];
-    
+static const char *get_group_key(const char *name, char *buf, size_t buf_size) {
     if (strncmp(name, "qleei_", 6) == 0) {
         name = name + 6;
     } else if (strncmp(name, "QLeei_", 6) == 0) {
@@ -53,7 +52,7 @@ static const char *get_group_key(const char *name) {
     if (second_end && (strncmp(second, "words", 5) == 0 || strncmp(second, "word", 4) == 0)) {
         size_t first_len = underscore - name;
         size_t second_len = second_end - second;
-        if (first_len + 1 + second_len >= sizeof(buf)) return NULL;
+        if (first_len + 1 + second_len >= buf_size) return NULL;
         memcpy(buf, name, first_len);
         buf[first_len] = '_';
         memcpy(buf + first_len + 1, second, second_len);
@@ -62,27 +61,11 @@ static const char *get_group_key(const char *name) {
     }
     
     size_t len = underscore - name;
-    if (len >= sizeof(buf)) return NULL;
+    if (len >= buf_size) return NULL;
     
     memcpy(buf, name, len);
     buf[len] = '\0';
     return buf;
-}
-
-static void group_list_append(Group_List *list, Group group) {
-    if (list->count >= list->capacity) {
-        list->capacity = list->capacity == 0 ? 16 : list->capacity * 2;
-        list->groups = (Group*)realloc(list->groups, list->capacity * sizeof(Group));
-    }
-    list->groups[list->count++] = group;
-}
-
-static void group_item_append(Group *group, Api_Item item) {
-    if (group->count >= group->capacity) {
-        group->capacity = group->capacity == 0 ? 8 : group->capacity * 2;
-        group->items = (Api_Item*)realloc(group->items, group->capacity * sizeof(Api_Item));
-    }
-    group->items[group->count++] = item;
 }
 
 static int group_compare(const void *a, const void *b) {
@@ -93,8 +76,6 @@ static int group_compare(const void *a, const void *b) {
     if (gb->key == NULL) return 1;
     return strcmp(ga->key, gb->key);
 }
-
-
 
 static char *find_next_symbol_line(const char *content, size_t len, size_t start) {
     size_t line_start = start;
@@ -167,8 +148,6 @@ static char *find_next_symbol_line(const char *content, size_t len, size_t start
 }
 
 static char *extract_name_from_signature(const char *signature) {
-    size_t sig_len = strlen(signature);
-    
     if (strncmp(signature, "typedef", 7) == 0) {
         const char *ptrn = strstr(signature, "(*");
         if (ptrn) {
@@ -179,12 +158,10 @@ static char *extract_name_from_signature(const char *signature) {
                 const char *name_start = p;
                 while (isalnum(*p) || *p == '_') p++;
                 size_t name_len = p - name_start;
-                if (name_len > 0) {
-                    char *result = (char*)malloc(name_len + 1);
-                    memcpy(result, name_start, name_len);
-                    result[name_len] = '\0';
-                    return result;
-                }
+                char *result = (char*)malloc(name_len + 1);
+                memcpy(result, name_start, name_len);
+                result[name_len] = '\0';
+                return result;
             }
         }
         
@@ -234,7 +211,7 @@ static char *extract_name_from_signature(const char *signature) {
         }
     }
     
-    const char *p = signature + sig_len - 1;
+    const char *p = signature + strlen(signature) - 1;
     while (p > signature && (*p == ' ' || *p == '\t' || *p == '\n' || *p == ';')) p--;
     
     const char *name_end = p + 1;
@@ -251,14 +228,6 @@ static char *extract_name_from_signature(const char *signature) {
     return NULL;
 }
 
-static void api_list_append(Api_List *list, Api_Item item) {
-    if (list->count >= list->capacity) {
-        list->capacity = list->capacity == 0 ? 16 : list->capacity * 2;
-        list->items = (Api_Item*)realloc(list->items, list->capacity * sizeof(Api_Item));
-    }
-    list->items[list->count++] = item;
-}
-
 static char *clean_doc_comment(const char *doc, size_t len) {
     size_t start = 0;
     while (start < len && (doc[start] == ' ' || doc[start] == '\t')) start++;
@@ -267,13 +236,10 @@ static char *clean_doc_comment(const char *doc, size_t len) {
     }
     if (start < len && doc[start] == ' ') start++;
     
-    size_t cap = 256;
-    size_t count = 0;
-    char *result = (char*)malloc(cap);
+    String_Builder result = {0};
     
     for (size_t i = start; i < len && doc[i] != '\n'; i++) {
-        if (count + 1 >= cap) { cap *= 2; result = (char*)realloc(result, cap); }
-        result[count++] = doc[i];
+        da_append(&result, doc[i]);
     }
     
     for (size_t i = start; i < len; i++) {
@@ -288,24 +254,22 @@ static char *clean_doc_comment(const char *doc, size_t len) {
             if (line_start >= len || doc[line_start] == '\n') continue;
             if (doc[line_start] == '@') break;
             
-            if (count > 0 && result[count-1] != ' ' && result[count-1] != '\n') {
-                if (count + 1 >= cap) { cap *= 2; result = (char*)realloc(result, cap); }
-                result[count++] = ' ';
+            if (result.count > 0 && result.items[result.count-1] != ' ' && result.items[result.count-1] != '\n') {
+                da_append(&result, ' ');
             }
             
             while (line_start < len && doc[line_start] != '\n' && doc[line_start] != '@') {
-                if (count + 1 >= cap) { cap *= 2; result = (char*)realloc(result, cap); }
-                result[count++] = doc[line_start++];
+                da_append(&result, doc[line_start++]);
             }
         }
     }
     
-    while (count > 0 && (result[count-1] == ' ' || result[count-1] == '\t')) {
-        count--;
+    while (result.count > 0 && (result.items[result.count-1] == ' ' || result.items[result.count-1] == '\t')) {
+        result.count--;
     }
     
-    result[count] = '\0';
-    return result;
+    da_append(&result, '\0');
+    return (char*)result.items;
 }
 
 static void parse_header(const char *path, Api_List *api) {
@@ -345,15 +309,12 @@ static void parse_header(const char *path, Api_List *api) {
                 if (signature) {
                     char *name = extract_name_from_signature(signature);
                     
-                    char *desc_copy = (char*)malloc(strlen(cleaned_doc) + 1);
-                    strcpy(desc_copy, cleaned_doc);
-                    
                     Api_Item item = {
                         .name = name ? strdup(name) : strdup("unknown"),
                         .signature = strdup(signature),
-                        .description = desc_copy
+                        .description = cleaned_doc
                     };
-                    api_list_append(api, item);
+                    da_append(api, item);
                     
                     free(signature);
                     free(name);
@@ -405,8 +366,8 @@ static bool is_c_type(const char *word, size_t len) {
 
 static bool is_known_type(const char *word, size_t len, Type_List *types) {
     for (size_t i = 0; i < types->count; i++) {
-        size_t type_len = strlen(types->names[i]);
-        if (len == type_len && strncmp(word, types->names[i], len) == 0) {
+        size_t type_len = strlen(types->items[i]);
+        if (len == type_len && strncmp(word, types->items[i], len) == 0) {
             return true;
         }
     }
@@ -609,7 +570,7 @@ static void write_item_html(String_Builder *sb, Api_Item *item, Type_List *types
 
 static void write_llm_header(String_Builder *sb) {
     sb_append_cstr(sb, "# QLeii API Reference\n\n");
-    sb_append_cstr(sb, "QLeii is a simple interpreted stack-based language.\n\n");
+    sb_append_cstr(sb, "QLeei is a simple interpreted stack-based language.\n\n");
 }
 
 static void write_item_llm(String_Builder *sb, Api_Item *item) {
@@ -664,158 +625,142 @@ static bool is_type(const char *signature) {
     return strncmp(signature, "typedef", 7) == 0;
 }
 
+static Group_List build_groups(Api_List *api, bool (*filter)(const char*)) {
+    Group_List result = {0};
+    char key_buf[64];
+    
+    for (size_t i = 0; i < api->count; i++) {
+        if (!filter(api->items[i].signature)) continue;
+        
+        const char *key = get_group_key(api->items[i].name, key_buf, sizeof(key_buf));
+        
+        size_t g = 0;
+        for (; g < result.count; g++) {
+            if ((key == NULL && result.items[g].key == NULL) ||
+                (key != NULL && result.items[g].key != NULL && strcmp(key, result.items[g].key) == 0)) {
+                break;
+            }
+        }
+        
+        if (g >= result.count) {
+            Group new_group = {0};
+            if (key) new_group.key = strdup(key);
+            da_append(&result, new_group);
+        }
+        
+        da_append(&result.items[g], api->items[i]);
+    }
+    
+    for (size_t i = 0; i < result.count; i++) {
+        if (result.items[i].count <= 1) {
+            free(result.items[i].key);
+            result.items[i].key = NULL;
+        }
+    }
+    qsort(result.items, result.count, sizeof(Group), group_compare);
+    
+    return result;
+}
+
+static void write_html(const char *output_path, Group_List *funcs, Group_List *types, Type_List *type_registry) {
+    String_Builder html = {0};
+    da_reserve(&html, 64 * 1024);
+    
+    write_html_header(&html);
+    
+    sb_append_cstr(&html, "<h2>Functions</h2>\n");
+    for (size_t i = 0; i < funcs->count; i++) {
+        write_group_sidebar_html(&html, &funcs->items[i]);
+    }
+    
+    sb_append_cstr(&html, "<h2>Types</h2>\n");
+    for (size_t i = 0; i < types->count; i++) {
+        write_group_sidebar_html(&html, &types->items[i]);
+    }
+    
+    write_html_footer(&html);
+    
+    write_section_header(&html, "functions", "Functions", "Can you feel? Can you hear me?");
+    for (size_t i = 0; i < funcs->count; i++) {
+        write_group_content_html(&html, &funcs->items[i], type_registry);
+    }
+    write_section_footer(&html);
+    
+    write_section_header(&html, "types", "Types", "What does this mean?! What does this mean?! WHAT DOES THIS MEAN?!");
+    for (size_t i = 0; i < types->count; i++) {
+        write_group_content_html(&html, &types->items[i], type_registry);
+    }
+    write_section_footer(&html);
+    
+    sb_append_cstr(&html, "</main>\n</div>\n</body>\n</html>\n");
+    
+    write_entire_file(output_path, html.items, html.count);
+    sb_free(html);
+}
+
+static void write_markdown(const char *output_path, Group_List *funcs, Group_List *types) {
+    String_Builder md = {0};
+    da_reserve(&md, 32 * 1024);
+    
+    write_llm_header(&md);
+    
+    sb_append_cstr(&md, "## Functions\n\n");
+    for (size_t i = 0; i < funcs->count; i++) {
+        write_group_llm(&md, &funcs->items[i]);
+    }
+    
+    sb_append_cstr(&md, "\n## Types\n\n");
+    for (size_t i = 0; i < types->count; i++) {
+        write_group_llm(&md, &types->items[i]);
+    }
+    
+    sb_append_null(&md);
+    write_entire_file(output_path, md.items, md.count - 1);
+    sb_free(md);
+}
+
+static void cleanup(Api_List *api, Group_List *funcs, Group_List *types) {
+    for (size_t i = 0; i < funcs->count; i++) {
+        free(funcs->items[i].key);
+        free(funcs->items[i].items);
+    }
+    free(funcs->items);
+    
+    for (size_t i = 0; i < types->count; i++) {
+        free(types->items[i].key);
+        free(types->items[i].items);
+    }
+    free(types->items);
+    
+    for (size_t i = 0; i < api->count; i++) {
+        free(api->items[i].name);
+        free(api->items[i].signature);
+        free(api->items[i].description);
+    }
+    free(api->items);
+}
+
 int main(void) {
     Api_List api = {0};
-    
     parse_header("qleei.h", &api);
     
     Type_List types = {0};
     for (size_t i = 0; i < api.count; i++) {
         if (is_type(api.items[i].signature)) {
-            if (types.count >= types.capacity) {
-                types.capacity = types.capacity == 0 ? 32 : types.capacity * 2;
-                types.names = (const char**)realloc(types.names, types.capacity * sizeof(const char*));
-            }
-            types.names[types.count++] = api.items[i].name;
+            da_append(&types, api.items[i].name);
         }
     }
     
     mkdir_if_not_exists("docs");
     
-    Group_List func_groups = {0};
-    Group_List type_groups = {0};
+    Group_List funcs = build_groups(&api, is_function);
+    Group_List type_groups = build_groups(&api, is_type);
     
-    for (size_t i = 0; i < api.count; i++) {
-        if (is_function(api.items[i].signature)) {
-            const char *key = get_group_key(api.items[i].name);
-            
-            size_t g = 0;
-            for (; g < func_groups.count; g++) {
-                if ((key == NULL && func_groups.groups[g].key == NULL) ||
-                    (key != NULL && func_groups.groups[g].key != NULL && strcmp(key, func_groups.groups[g].key) == 0)) {
-                    break;
-                }
-            }
-            
-            if (g >= func_groups.count) {
-                Group new_group = {0};
-                new_group.key = key ? strdup(key) : NULL;
-                group_list_append(&func_groups, new_group);
-            }
-            
-            group_item_append(&func_groups.groups[g], api.items[i]);
-        }
-    }
+    write_html("docs/index.html", &funcs, &type_groups, &types);
+    write_markdown("docs/llm.md", &funcs, &type_groups);
     
-    for (size_t i = 0; i < func_groups.count; i++) {
-        if (func_groups.groups[i].count <= 1) {
-            free(func_groups.groups[i].key);
-            func_groups.groups[i].key = NULL;
-        }
-    }
-    qsort(func_groups.groups, func_groups.count, sizeof(Group), group_compare);
-    
-    for (size_t i = 0; i < api.count; i++) {
-        if (is_type(api.items[i].signature)) {
-            const char *key = get_group_key(api.items[i].name);
-            
-            size_t g = 0;
-            for (; g < type_groups.count; g++) {
-                if ((key == NULL && type_groups.groups[g].key == NULL) ||
-                    (key != NULL && type_groups.groups[g].key != NULL && strcmp(key, type_groups.groups[g].key) == 0)) {
-                    break;
-                }
-            }
-            
-            if (g >= type_groups.count) {
-                Group new_group = {0};
-                new_group.key = key ? strdup(key) : NULL;
-                group_list_append(&type_groups, new_group);
-            }
-            
-            group_item_append(&type_groups.groups[g], api.items[i]);
-        }
-    }
-    
-    for (size_t i = 0; i < type_groups.count; i++) {
-        if (type_groups.groups[i].count <= 1) {
-            free(type_groups.groups[i].key);
-            type_groups.groups[i].key = NULL;
-        }
-    }
-    qsort(type_groups.groups, type_groups.count, sizeof(Group), group_compare);
-    
-    {
-        String_Builder html = {0};
-        write_html_header(&html);
-        
-        sb_append_cstr(&html, "<h2>Functions</h2>\n");
-        for (size_t i = 0; i < func_groups.count; i++) {
-            write_group_sidebar_html(&html, &func_groups.groups[i]);
-        }
-        
-        sb_append_cstr(&html, "<h2>Types</h2>\n");
-        for (size_t i = 0; i < type_groups.count; i++) {
-            write_group_sidebar_html(&html, &type_groups.groups[i]);
-        }
-        
-        write_html_footer(&html);
-        
-        write_section_header(&html, "functions", "Functions", "Can you feel? Can you hear me?");
-        for (size_t i = 0; i < func_groups.count; i++) {
-            write_group_content_html(&html, &func_groups.groups[i], &types);
-        }
-        write_section_footer(&html);
-        
-        write_section_header(&html, "types", "Types", "What does this mean?! What does this mean?! WHAT DOES THIS MEAN?!");
-        for (size_t i = 0; i < type_groups.count; i++) {
-            write_group_content_html(&html, &type_groups.groups[i], &types);
-        }
-        write_section_footer(&html);
-        
-        sb_append_cstr(&html, "</main>\n</div>\n</body>\n</html>\n");
-        
-        write_entire_file("docs/index.html", html.items, html.count);
-        sb_free(html);
-    }
-    
-    {
-        String_Builder llm = {0};
-        write_llm_header(&llm);
-        
-        sb_append_cstr(&llm, "## Functions\n\n");
-        for (size_t i = 0; i < func_groups.count; i++) {
-            write_group_llm(&llm, &func_groups.groups[i]);
-        }
-        
-        sb_append_cstr(&llm, "\n## Types\n\n");
-        for (size_t i = 0; i < type_groups.count; i++) {
-            write_group_llm(&llm, &type_groups.groups[i]);
-        }
-        
-        sb_append_null(&llm);
-        write_entire_file("docs/llm.md", llm.items, llm.count - 1);
-        sb_free(llm);
-    }
-    
-    for (size_t i = 0; i < func_groups.count; i++) {
-        free(func_groups.groups[i].key);
-        free(func_groups.groups[i].items);
-    }
-    free(func_groups.groups);
-    
-    for (size_t i = 0; i < type_groups.count; i++) {
-        free(type_groups.groups[i].key);
-        free(type_groups.groups[i].items);
-    }
-    free(type_groups.groups);
-    
-    for (size_t i = 0; i < api.count; i++) {
-        free(api.items[i].name);
-        free(api.items[i].signature);
-        free(api.items[i].description);
-    }
-    free(api.items);
+    cleanup(&api, &funcs, &type_groups);
+    free(types.items);
     
     printf("Generated docs/index.html and docs/llm.md\n");
     return 0;
