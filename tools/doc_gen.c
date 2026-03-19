@@ -245,6 +245,143 @@ static void parse_header(const char *path, Api_List *api) {
     sb_free(content);
 }
 
+static bool is_c_keyword(const char *word, size_t len) {
+    static const char *keywords[] = {
+        "auto", "break", "case", "char", "const", "continue", "default", "do",
+        "double", "else", "enum", "extern", "float", "for", "goto", "if",
+        "inline", "int", "long", "register", "restrict", "return", "short",
+        "signed", "sizeof", "static", "struct", "switch", "typedef", "union",
+        "unsigned", "void", "volatile", "while", "_Bool", "_Complex", "_Imaginary",
+        "NULL", "true", "false"
+    };
+    for (size_t i = 0; i < sizeof(keywords)/sizeof(keywords[0]); i++) {
+        if (strncmp(word, keywords[i], len) == 0 && keywords[i][len] == '\0') {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool is_c_type(const char *word, size_t len) {
+    static const char *types[] = {
+        "size_t", "ssize_t", "bool", "char", "int", "long", "short", "float",
+        "double", "void", "FILE", "ptrdiff_t", "wchar_t", "char16_t", "char32_t",
+        "qleei_uisz_t", "qleei_si8_t", "qleei_ui8_t", "qleei_si16_t", "qleei_ui16_t",
+        "qleei_si32_t", "qleei_ui32_t", "qleei_si64_t", "qleei_ui64_t"
+    };
+    for (size_t i = 0; i < sizeof(types)/sizeof(types[0]); i++) {
+        if (strncmp(word, types[i], len) == 0 && types[i][len] == '\0') {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void html_escape(String_Builder *sb, const char *text, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        switch (text[i]) {
+            case '&': sb_append_cstr(sb, "&amp;"); break;
+            case '<': sb_append_cstr(sb, "&lt;"); break;
+            case '>': sb_append_cstr(sb, "&gt;"); break;
+            case '"': sb_append_cstr(sb, "&quot;"); break;
+            default: da_append(sb, text[i]);
+        }
+    }
+}
+
+static void highlight_c_code(String_Builder *sb, const char *code, size_t len) {
+    size_t i = 0;
+    while (i < len) {
+        if (code[i] == '/' && i + 1 < len && code[i+1] == '/') {
+            sb_append_cstr(sb, "<span class=\"syn-cm\">");
+            while (i < len) { da_append(sb, code[i]); if (code[i] == '\n') break; i++; }
+            sb_append_cstr(sb, "</span>");
+            i++;
+        } else if (code[i] == '/' && i + 1 < len && code[i+1] == '*') {
+            sb_append_cstr(sb, "<span class=\"syn-cm\">");
+            da_append(sb, code[i]); da_append(sb, code[i+1]); i += 2;
+            while (i < len - 1) {
+                if (code[i] == '*' && code[i+1] == '/') {
+                    da_append(sb, code[i]); da_append(sb, code[i+1]); i += 2;
+                    break;
+                }
+                da_append(sb, code[i]); i++;
+            }
+            sb_append_cstr(sb, "</span>");
+        } else if (code[i] == '"') {
+            sb_append_cstr(sb, "<span class=\"syn-st\">");
+            da_append(sb, code[i]); i++;
+            while (i < len && code[i] != '"') {
+                if (code[i] == '\\' && i + 1 < len) {
+                    da_append(sb, code[i]); da_append(sb, code[i+1]); i += 2;
+                } else {
+                    da_append(sb, code[i]); i++;
+                }
+            }
+            if (i < len) { da_append(sb, code[i]); i++; }
+            sb_append_cstr(sb, "</span>");
+        } else if (code[i] == '\'' && i + 1 < len) {
+            sb_append_cstr(sb, "<span class=\"syn-st\">");
+            da_append(sb, code[i]); i++;
+            while (i < len && code[i] != '\'') {
+                if (code[i] == '\\' && i + 1 < len) {
+                    da_append(sb, code[i]); da_append(sb, code[i+1]); i += 2;
+                } else {
+                    da_append(sb, code[i]); i++;
+                }
+            }
+            if (i < len) { da_append(sb, code[i]); i++; }
+            sb_append_cstr(sb, "</span>");
+        } else if (isalpha(code[i]) || code[i] == '_') {
+            size_t start = i;
+            while (i < len && (isalnum(code[i]) || code[i] == '_')) i++;
+            size_t word_len = i - start;
+            const char *word = code + start;
+            
+            if (is_c_keyword(word, word_len)) {
+                sb_append_cstr(sb, "<span class=\"syn-kw\">");
+                html_escape(sb, word, word_len);
+                sb_append_cstr(sb, "</span>");
+            } else if (is_c_type(word, word_len)) {
+                sb_append_cstr(sb, "<span class=\"syn-tp\">");
+                html_escape(sb, word, word_len);
+                sb_append_cstr(sb, "</span>");
+            } else if (i < len && code[i] == '(') {
+                sb_append_cstr(sb, "<span class=\"syn-fn\">");
+                html_escape(sb, word, word_len);
+                sb_append_cstr(sb, "</span>");
+            } else {
+                html_escape(sb, word, word_len);
+            }
+        } else if (isdigit(code[i])) {
+            size_t start = i;
+            while (i < len && (isalnum(code[i]) || code[i] == '.' || code[i] == '_' || code[i] == 'x' || code[i] == 'X' ||
+                             (code[i] >= 'a' && code[i] <= 'f') || (code[i] >= 'A' && code[i] <= 'F'))) i++;
+            sb_append_cstr(sb, "<span class=\"syn-nm\">");
+            html_escape(sb, code + start, i - start);
+            sb_append_cstr(sb, "</span>");
+        } else if (code[i] == '#') {
+            size_t start = i;
+            while (i < len && !isspace(code[i])) i++;
+            sb_append_cstr(sb, "<span class=\"syn-cp\">");
+            html_escape(sb, code + start, i - start);
+            sb_append_cstr(sb, "</span>");
+        } else {
+            switch (code[i]) {
+                case '&': case '|': case '!': case '=': case '+': case '-': case '*': case '/': case '%':
+                case '<': case '>': case '^': case '~': case '?': case ':':
+                    sb_append_cstr(sb, "<span class=\"syn-cp\">");
+                    da_append(sb, code[i]);
+                    sb_append_cstr(sb, "</span>");
+                    break;
+                default:
+                    da_append(sb, code[i]);
+            }
+            i++;
+        }
+    }
+}
+
 static void write_html_header(String_Builder *sb) {
     sb_append_cstr(sb,
         "<!DOCTYPE html>\n"
@@ -265,12 +402,19 @@ static void write_html_header(String_Builder *sb) {
         ".main { flex: 1; margin-left: 280px; padding: 40px; }\n"
         ".item { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 2px 4px rgba(74,18,89,0.1); border: 1px solid #ffb6c1; }\n"
         ".item h2 { color: #4a1259; font-size: 1.3rem; margin-bottom: 8px; font-family: 'Courier New', monospace; }\n"
-        ".item .signature { background: #f8f0f8; padding: 12px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #4a1259; overflow-x: auto; margin-bottom: 12px; border: 1px solid #e0d0e0; }\n"
+        ".item .signature { background: #0d0d14; padding: 12px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #e0e0e0; overflow-x: auto; margin-bottom: 12px; border: 1px solid #4a1259; }\n"
         ".item .description { color: #444; }\n"
         ".item .description p { margin-bottom: 8px; }\n"
-        ".item .description code { background: #f8f0f8; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #8b008b; }\n"
-        ".item .description pre { background: #4a1259; color: #fff; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 12px 0; }\n"
+        ".item .description code { background: #1a1a2e; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #f8f0f5; }\n"
+        ".item .description pre { background: #0d0d14; color: #e0e0e0; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 12px 0; }\n"
         ".item .description pre code { background: none; padding: 0; color: inherit; }\n"
+        ".syn-kw { color: #ff79c6; font-weight: bold; }\n"
+        ".syn-tp { color: #bd93f9; }\n"
+        ".syn-fn { color: #50fa7b; }\n"
+        ".syn-nm { color: #ffb86c; }\n"
+        ".syn-st { color: #f1fa8c; }\n"
+        ".syn-cm { color: #6272a4; font-style: italic; }\n"
+        ".syn-cp { color: #8be9fd; }\n"
         "@media (max-width: 768px) { .sidebar { width: 100%; height: auto; position: relative; } .main { margin-left: 0; } }\n"
         "</style>\n"
         "</head>\n"
@@ -291,7 +435,9 @@ static void write_html_footer(String_Builder *sb) {
 static void write_item_html(String_Builder *sb, Api_Item *item) {
     sb_appendf(sb, "<div class=\"item\" id=\"%s\">\n", item->name);
     sb_appendf(sb, "<h2>%s</h2>\n", item->name);
-    sb_appendf(sb, "<pre class=\"signature\">%s</pre>\n", item->signature);
+    sb_appendf(sb, "<pre class=\"signature\"><code>");
+    highlight_c_code(sb, item->signature, strlen(item->signature));
+    sb_appendf(sb, "</code></pre>\n");
     sb_appendf(sb, "<div class=\"description\">%s</div>\n", item->description);
     sb_appendf(sb, "</div>\n\n");
 }
