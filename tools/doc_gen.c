@@ -14,6 +14,12 @@ typedef struct {
     size_t capacity;
 } Api_List;
 
+typedef struct {
+    const char **names;
+    size_t count;
+    size_t capacity;
+} Type_List;
+
 
 
 static char *find_next_symbol_line(const char *content, size_t len, size_t start) {
@@ -277,6 +283,16 @@ static bool is_c_type(const char *word, size_t len) {
     return false;
 }
 
+static bool is_known_type(const char *word, size_t len, Type_List *types) {
+    for (size_t i = 0; i < types->count; i++) {
+        size_t type_len = strlen(types->names[i]);
+        if (len == type_len && strncmp(word, types->names[i], len) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void html_escape(String_Builder *sb, const char *text, size_t len) {
     for (size_t i = 0; i < len; i++) {
         switch (text[i]) {
@@ -289,7 +305,7 @@ static void html_escape(String_Builder *sb, const char *text, size_t len) {
     }
 }
 
-static void highlight_c_code(String_Builder *sb, const char *code, size_t len) {
+static void highlight_c_code(String_Builder *sb, const char *code, size_t len, Type_List *types, const char *current_name) {
     size_t i = 0;
     while (i < len) {
         if (code[i] == '/' && i + 1 < len && code[i+1] == '/') {
@@ -346,6 +362,11 @@ static void highlight_c_code(String_Builder *sb, const char *code, size_t len) {
                 sb_append_cstr(sb, "<span class=\"syn-tp\">");
                 html_escape(sb, word, word_len);
                 sb_append_cstr(sb, "</span>");
+            } else if (is_known_type(word, word_len, types) && 
+                       (current_name == NULL || strncmp(word, current_name, word_len) != 0 || strlen(current_name) != word_len)) {
+                sb_appendf(sb, "<a href=\"#%.*s\" class=\"type-link\">", (int)word_len, word);
+                html_escape(sb, word, word_len);
+                sb_append_cstr(sb, "</a>");
             } else if (i < len && code[i] == '(') {
                 sb_append_cstr(sb, "<span class=\"syn-fn\">");
                 html_escape(sb, word, word_len);
@@ -419,6 +440,8 @@ static void write_html_header(String_Builder *sb) {
         ".syn-st { color: #f1fa8c; }\n"
         ".syn-cm { color: #6272a4; font-style: italic; }\n"
         ".syn-cp { color: #8be9fd; }\n"
+        ".type-link { color: #c792ea; text-decoration: underline; cursor: pointer; }\n"
+        ".type-link:hover { color: #ff69b4; }\n"
         "@media (max-width: 768px) { html, body { overflow-x: hidden; } .sidebar { width: 100%; height: auto; position: relative; } .main { margin-left: 0; max-width: 100vw; } }\n"
         "</style>\n"
         "</head>\n"
@@ -446,11 +469,11 @@ static void write_section_footer(String_Builder *sb) {
     sb_append_cstr(sb, "</section>\n");
 }
 
-static void write_item_html(String_Builder *sb, Api_Item *item) {
+static void write_item_html(String_Builder *sb, Api_Item *item, Type_List *types) {
     sb_appendf(sb, "<div class=\"item\" id=\"%s\">\n", item->name);
     sb_appendf(sb, "<h2>%s</h2>\n", item->name);
     sb_appendf(sb, "<pre class=\"signature\"><code>");
-    highlight_c_code(sb, item->signature, strlen(item->signature));
+    highlight_c_code(sb, item->signature, strlen(item->signature), types, item->name);
     sb_appendf(sb, "</code></pre>\n");
     sb_appendf(sb, "<div class=\"description\">%s</div>\n", item->description);
     sb_appendf(sb, "</div>\n\n");
@@ -471,6 +494,17 @@ int main(void) {
     Api_List api = {0};
     
     parse_header("qleei.h", &api);
+    
+    Type_List types = {0};
+    for (size_t i = 0; i < api.count; i++) {
+        if (strncmp(api.items[i].signature, "typedef", 7) == 0) {
+            if (types.count >= types.capacity) {
+                types.capacity = types.capacity == 0 ? 32 : types.capacity * 2;
+                types.names = (const char**)realloc(types.names, types.capacity * sizeof(const char*));
+            }
+            types.names[types.count++] = api.items[i].name;
+        }
+    }
     
     mkdir_if_not_exists("docs");
     
@@ -499,7 +533,7 @@ int main(void) {
         for (size_t i = 0; i < api.count; i++) {
             if (strncmp(api.items[i].signature, "static", 6) != 0 &&
                 strncmp(api.items[i].signature, "typedef", 7) != 0) {
-                write_item_html(&html, &api.items[i]);
+                write_item_html(&html, &api.items[i], &types);
             }
         }
         write_section_footer(&html);
@@ -507,7 +541,7 @@ int main(void) {
         write_section_header(&html, "types", "Types", "What does this mean?! What does this mean?! WHAT DOES THIS MEAN?!");
         for (size_t i = 0; i < api.count; i++) {
             if (strncmp(api.items[i].signature, "typedef", 7) == 0) {
-                write_item_html(&html, &api.items[i]);
+                write_item_html(&html, &api.items[i], &types);
             }
         }
         write_section_footer(&html);
