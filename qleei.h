@@ -1018,6 +1018,7 @@ static bool qleei__word_assert_empty(Qleei_Word_Handler_Opt opt) {
   if (opt.stack->len != 0) {
     qleei_printfn("[ERROR] Expected stack to be empty but %zu elements remain in it", opt.stack->len);
     qleei_print_stack(opt.stack);
+    return false;
   }
   return true;
 }
