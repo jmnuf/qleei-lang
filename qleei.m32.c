@@ -75,12 +75,18 @@ int main(int argc, char **argv) {
 
   if (sb.count > 0 && sb.items[sb.count - 1] == 0) sb.count--;
 
+  int result = 0;
+
   Qleei_Interpreter it = {0};
   qleei_interpreter_lexer_init(&it, input_path, sb.items, sb.count);
   qleei_interpreter_register_word(&it, "sub", word_handler_sub);
-  qleei_interpreter_register_word_with_data(&it, "@hello_world", word_handler_at_hello_world, qleei_zstr_dup("Hello, World!"));
+  const char *hello_world = qleei_zstr_dup("Hello, World!");
+  qleei_interpreter_register_word_with_data(&it, "@hello_world", word_handler_at_hello_world, hello_world);
   qleei_interpreter_register_word(&it, "@zstr#ascii_upper", word_handler_at_zstr_pound_ascci_upper);
-  if (!qleei_interpreter_exec(&it)) return 1;
+  if (!qleei_interpreter_exec(&it)) result = 1;
+
+  qleei_mem_free(hello_world);
+  qleei_interpreter_free(&it);
 
   return 0;
 }

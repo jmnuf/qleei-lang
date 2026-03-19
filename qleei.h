@@ -500,6 +500,10 @@ bool qleei_interpreter_unregister_word(Qleei_Interpreter *it, const char *word);
 bool qleei_interpreter_step(Qleei_Interpreter *it);
 bool qleei_interpreter_exec(Qleei_Interpreter *it);
 
+void qleei_interpreter_reset(Qleei_Interpreter *it);
+void qleei_interpreter_clear(Qleei_Interpreter *it);
+void qleei_interpreter_free(Qleei_Interpreter *it);
+
 bool qleei_interpret_buffer(const char *buffer_source_path, const char *buffer, qleei_uisz_t buf_size);
 
 /**
@@ -1875,6 +1879,34 @@ bool qleei_interpreter_step(Qleei_Interpreter *it) {
 void qleei_interpreter_lexer_init(Qleei_Interpreter *it, const char *input_path, const char *buffer, qleei_uisz_t buf_size) {
   qleei_lexer_init(&it->lexer, input_path, buffer, buf_size);
   it->stack.len = 0;
+  it->done = false;
+}
+
+void qleei_interpreter_clear(Qleei_Interpreter *it) {
+  // Don't feel like adding a qleei_mem_set and this is the answer I came up with to reset the lexer
+  it->lexer = (QLeei_Lexer){0};
+  it->stack.len = 0;
+  it->words.len = 0;
+  it->procs.len = 0;
+  it->done = false;
+}
+
+void qleei_interpreter_reset(Qleei_Interpreter *it, const char *input_path, const char *buffer, qleei_uisz_t buf_size) {
+  qleei_lexer_init(&it->lexer, input_path, buffer, buf_size);
+  it->stack.len = 0;
+  it->done = false;
+  // words registry is intentionally preserved across resets
+}
+
+void qleei_interpreter_free(Qleei_Interpreter *it) {
+  // Free each proc's input/output type lists
+  qleei_alist_foreach(Qleei_Proc, proc, &it->procs) {
+    qleei_list_free((void**)&proc->inputs.items,  &proc->inputs.cap,  &proc->inputs.len);
+    qleei_list_free((void**)&proc->outputs.items, &proc->outputs.cap, &proc->outputs.len);
+  }
+  qleei_alist_free(&it->stack);
+  qleei_alist_free(&it->words);
+  qleei_alist_free(&it->procs);
 }
 
 bool qleei_interpreter_register_word(Qleei_Interpreter *it, const char *word, Qleei_Word_Handler handler) {
