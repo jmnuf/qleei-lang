@@ -2048,7 +2048,7 @@ bool qleei_interpret_buffer(const char *buffer_source_path, const char *buffer, 
     }
   }
 
-  qleei_alist_free(&it.stack);
+  qleei_interpreter_free(&it);
   return result;
 }
 
