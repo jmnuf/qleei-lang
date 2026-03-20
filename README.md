@@ -73,6 +73,13 @@ while <condition> begin
     <body>
 end
 ```
+Example loop printing numbers 1 to 69
+```qleei
+1 while dup 70 - begin
+    dup print_number
+    1 +
+end drop
+```
 
 ## User Procedures
 
