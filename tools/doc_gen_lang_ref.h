@@ -40,14 +40,7 @@ static void html_qleei_highlight(String_Builder *sb, const char *code, size_t le
             String_View line = sv_chop_by_delim(&sv, '\n');
             html_escape(sb, line.data, line.count);
             sb_append_cstr(sb, "</span>");
-            i++;
-        } else if (code[i] == '-' && i + 1 < len && code[i+1] == '-') {
-          sb_append_cstr(sb, "<span class=\"syn-cm\">");
-          String_View line = sv_chop_by_delim(&sv, '\n');
-          i += line.count;
-          html_escape(sb, line.data, line.count);
-          sb_append_cstr(sb, "</span>");
-          i++;
+            i += line.count;
         } else if (isalpha(code[i]) || code[i] == '_') {
             size_t start = i;
             while (i < len && (isalnum(code[i]) || code[i] == '_')) i++;
