@@ -4,9 +4,9 @@
 #include "../nob.h"
 
 typedef struct {
-    char *name;
-    char *signature;
-    char *description;
+    const char *name;
+    const char *signature;
+    const char *description;
 } Api_Item;
 
 typedef struct {
@@ -22,7 +22,7 @@ typedef struct {
 } Type_List;
 
 typedef struct {
-    char *key;
+    const char *key;
     Api_Item *items;
     size_t count;
     size_t capacity;
@@ -33,6 +33,16 @@ typedef struct {
     size_t count;
     size_t capacity;
 } Group_List;
+
+static String_Builder string_pool = {0};
+
+static const char *pool_strdup(const char *str) {
+    size_t len = strlen(str);
+    size_t start = string_pool.count;
+    da_append_many(&string_pool, str, len);
+    da_append(&string_pool, '\0');
+    return string_pool.items + start;
+}
 
 static const char *group_key(const char *name, char *buf, size_t buf_size) {
     if (strncmp(name, "qleei_", 6) == 0) {
@@ -105,7 +115,7 @@ static Group_List group_build(Api_List *api, bool (*filter)(const char*)) {
         
         if (g >= result.count) {
             Group new_group = {0};
-            if (key) new_group.key = strdup(key);
+            if (key) new_group.key = pool_strdup(key);
             da_append(&result, new_group);
         }
         
@@ -114,7 +124,6 @@ static Group_List group_build(Api_List *api, bool (*filter)(const char*)) {
     
     for (size_t i = 0; i < result.count; i++) {
         if (result.items[i].count <= 1) {
-            free(result.items[i].key);
             result.items[i].key = NULL;
         }
     }
@@ -123,7 +132,7 @@ static Group_List group_build(Api_List *api, bool (*filter)(const char*)) {
     return result;
 }
 
-static char *parse_symbol_line(const char *content, size_t len, size_t start) {
+static const char *parse_symbol_line(const char *content, size_t len, size_t start) {
     size_t line_start = start;
     size_t typedef_start = 0;
     int brace_count = 0;
@@ -139,15 +148,12 @@ static char *parse_symbol_line(const char *content, size_t len, size_t start) {
                 continue;
             }
             
-            char *line = (char*)malloc(line_len + 1);
-            memcpy(line, content + line_start, line_len);
-            line[line_len] = '\0';
+            char *line = temp_sprintf("%.*s", (int)line_len, content + line_start);
             
             char *trimmed = line;
             while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
             
             if (*trimmed == '\0' || *trimmed == '\n' || strncmp(trimmed, "//", 2) == 0 || strncmp(trimmed, "/*", 2) == 0) {
-                free(line);
                 line_start = i + 1;
                 continue;
             }
@@ -164,11 +170,11 @@ static char *parse_symbol_line(const char *content, size_t len, size_t start) {
                 }
                 if (brace_count == 0 && typedef_start > 0) {
                     size_t total_len = i - typedef_start;
-                    char *result = (char*)malloc(total_len + 1);
-                    memcpy(result, content + typedef_start, total_len);
-                    result[total_len] = '\0';
-                    free(line);
-                    return result;
+                    char *result = temp_sprintf("%.*s", (int)total_len, content + typedef_start);
+                    size_t result_len = strlen(result);
+                    const char *pooled = pool_strdup(result);
+                    (void)result_len;
+                    return pooled;
                 }
             } else {
                 if (strncmp(trimmed, "typedef", 7) == 0 ||
@@ -178,22 +184,19 @@ static char *parse_symbol_line(const char *content, size_t len, size_t start) {
                     strncmp(trimmed, "const", 5) == 0 ||
                     strncmp(trimmed, "extern", 6) == 0 ||
                     (trimmed[0] != '#' && (isalpha(trimmed[0]) || trimmed[0] == '_'))) {
-                    char *result = (char*)malloc(line_len + 1);
-                    memcpy(result, line, line_len);
-                    result[line_len] = '\0';
-                    free(line);
-                    return result;
+                    char *result = temp_sprintf("%.*s", (int)line_len, content + line_start);
+                    const char *pooled = pool_strdup(result);
+                    return pooled;
                 }
             }
             
-            free(line);
             line_start = i + 1;
         }
     }
     return NULL;
 }
 
-static char *parse_name(const char *signature) {
+static const char *parse_name(const char *signature) {
     if (strncmp(signature, "typedef", 7) == 0) {
         const char *ptrn = strstr(signature, "(*");
         if (ptrn) {
@@ -204,10 +207,8 @@ static char *parse_name(const char *signature) {
                 const char *name_start = p;
                 while (isalnum(*p) || *p == '_') p++;
                 size_t name_len = p - name_start;
-                char *result = (char*)malloc(name_len + 1);
-                memcpy(result, name_start, name_len);
-                result[name_len] = '\0';
-                return result;
+                char *result = temp_sprintf("%.*s", (int)name_len, name_start);
+                return pool_strdup(result);
             }
         }
         
@@ -230,10 +231,8 @@ static char *parse_name(const char *signature) {
                     const char *name_start = p;
                     while (name_start > signature && (isalnum(name_start[-1]) || name_start[-1] == '_')) name_start--;
                     size_t name_len = p - name_start + 1;
-                    char *result = (char*)malloc(name_len + 1);
-                    memcpy(result, name_start, name_len);
-                    result[name_len] = '\0';
-                    return result;
+                    char *result = temp_sprintf("%.*s", (int)name_len, name_start);
+                    return pool_strdup(result);
                 }
             }
         }
@@ -250,10 +249,8 @@ static char *parse_name(const char *signature) {
         
         size_t name_len = name_end - p;
         if (name_len > 0) {
-            char *result = (char*)malloc(name_len + 1);
-            memcpy(result, p, name_len);
-            result[name_len] = '\0';
-            return result;
+            char *result = temp_sprintf("%.*s", (int)name_len, p);
+            return pool_strdup(result);
         }
     }
     
@@ -266,15 +263,13 @@ static char *parse_name(const char *signature) {
     
     if (name_end > p) {
         size_t name_len = name_end - p;
-        char *result = (char*)malloc(name_len + 1);
-        memcpy(result, p, name_len);
-        result[name_len] = '\0';
-        return result;
+        char *result = temp_sprintf("%.*s", (int)name_len, p);
+        return pool_strdup(result);
     }
     return NULL;
 }
 
-static char *parse_doc(const char *doc, size_t len) {
+static const char *parse_doc(const char *doc, size_t len) {
     size_t start = 0;
     while (start < len && (doc[start] == ' ' || doc[start] == '\t')) start++;
     if (start + 2 < len && doc[start] == '/' && doc[start+1] == '*' && doc[start+2] == '*') {
@@ -315,7 +310,9 @@ static char *parse_doc(const char *doc, size_t len) {
     }
     
     da_append(&result, '\0');
-    return (char*)result.items;
+    const char *pooled = pool_strdup(result.items);
+    sb_free(result);
+    return pooled;
 }
 
 static void parse_header(const char *path, Api_List *api) {
@@ -343,29 +340,21 @@ static void parse_header(const char *path, Api_List *api) {
             
             if (doc_end > doc_start) {
                 size_t doc_len = doc_end - doc_start;
-                char *doc_comment = (char*)malloc(doc_len + 1);
-                memcpy(doc_comment, data + doc_start, doc_len);
-                doc_comment[doc_len] = '\0';
+                char *doc_comment = temp_sprintf("%.*s", (int)doc_len, data + doc_start);
                 
-                char *cleaned_doc = parse_doc(doc_comment, doc_len);
-                free(doc_comment);
+                const char *cleaned_doc = parse_doc(doc_comment, doc_len);
                 
-                char *signature = parse_symbol_line(data, len, doc_end + 2);
+                const char *signature = parse_symbol_line(data, len, doc_end + 2);
                 
                 if (signature) {
-                    char *name = parse_name(signature);
+                    const char *name = parse_name(signature);
                     
                     Api_Item item = {
-                        .name = name ? strdup(name) : strdup("unknown"),
-                        .signature = strdup(signature),
+                        .name = name ? pool_strdup(name) : pool_strdup("unknown"),
+                        .signature = pool_strdup(signature),
                         .description = cleaned_doc
                     };
                     da_append(api, item);
-                    
-                    free(signature);
-                    free(name);
-                } else {
-                    free(cleaned_doc);
                 }
             }
             
@@ -721,22 +710,15 @@ static void md_write(const char *output_path, Group_List *funcs, Group_List *typ
 
 static void cleanup(Api_List *api, Group_List *funcs, Group_List *types) {
     for (size_t i = 0; i < funcs->count; i++) {
-        free(funcs->items[i].key);
         free(funcs->items[i].items);
     }
     free(funcs->items);
     
     for (size_t i = 0; i < types->count; i++) {
-        free(types->items[i].key);
         free(types->items[i].items);
     }
     free(types->items);
     
-    for (size_t i = 0; i < api->count; i++) {
-        free(api->items[i].name);
-        free(api->items[i].signature);
-        free(api->items[i].description);
-    }
     free(api->items);
 }
 
@@ -761,6 +743,7 @@ int main(void) {
     
     cleanup(&api, &funcs, &type_groups);
     free(types.items);
+    sb_free(string_pool);
     
     printf("Generated docs/index.html and docs/llm.md\n");
     return 0;
