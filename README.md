@@ -42,7 +42,9 @@ General Stack Operations:
 - drop         :: [a] -> []
   - Drops the first element of the stack.
 - rot2         :: [a, b] -> [b, a]
-  - Swaps the top and second to top elements of the stack. It also has the alias of `swap2` if you prefer that name.
+  - Swaps the top and second to top elements of the stack.
+- swap2        :: [a, b] -> [b, a]
+  - Alias of `rot2`. Swaps the top and second to top elements of the stack.
 - rot3         :: [a, b, c] -> [b, c, a]
   - Rotates the top 3 elements of the stack, so the first (top) goes to third, second goes to first and third goes to second.
 - swap3        :: [a, b, c] -> [c, b, a]

@@ -1,5 +1,15 @@
 #include "doc_gen.h"
 
+static const char *types[] = {"number", "bool", "pointer"};
+static const size_t types_count = sizeof(types) / sizeof(types[0]);
+
+static const char *printing_intrinsics[] = {"print_number", "print_ptr", "print_char", "print_zstr", "print_stack"};
+static const char *stack_intrinsics[] = {"dup", "drop", "rot2", "swap2", "rot3", "swap3", "over"};
+static const char *memory_intrinsics[] = {"mem_alloc", "mem_free", "mem_load_ui8", "mem_save_ui8", "mem_load_ui32", "mem_save_ui32"};
+
+static const char *loop_example = "while <condition> begin\n    <body>\nend";
+static const char *proc_example = "proc <name-of-proc> [<..inputs>] -> [<..outputs>] <body> end";
+
 static bool is_qleei_keyword(const char *word, size_t len) {
     static const char *keywords[] = { "while", "begin", "end", "proc" };
     for (size_t i = 0; i < sizeof(keywords)/sizeof(keywords[0]); i++) {
@@ -9,14 +19,14 @@ static bool is_qleei_keyword(const char *word, size_t len) {
 }
 
 static bool is_qleei_intrinsic(const char *word, size_t len) {
-    static const char *intrinsics[] = {
-        "print_number", "print_ptr", "print_char", "print_zstr", "print_stack",
-        "dup", "drop", "rot2", "swap2", "rot3", "swap3", "over",
-        "mem_alloc", "mem_free", "mem_load_ui8", "mem_save_ui8",
-        "mem_load_ui32", "mem_save_ui32"
-    };
-    for (size_t i = 0; i < sizeof(intrinsics)/sizeof(intrinsics[0]); i++) {
-        if (strncmp(word, intrinsics[i], len) == 0 && intrinsics[i][len] == '\0') return true;
+    for (size_t i = 0; i < sizeof(printing_intrinsics)/sizeof(printing_intrinsics[0]); i++) {
+        if (strncmp(word, printing_intrinsics[i], len) == 0 && strlen(printing_intrinsics[i]) == len) return true;
+    }
+    for (size_t i = 0; i < sizeof(stack_intrinsics)/sizeof(stack_intrinsics[0]); i++) {
+        if (strncmp(word, stack_intrinsics[i], len) == 0 && strlen(stack_intrinsics[i]) == len) return true;
+    }
+    for (size_t i = 0; i < sizeof(memory_intrinsics)/sizeof(memory_intrinsics[0]); i++) {
+        if (strncmp(word, memory_intrinsics[i], len) == 0 && strlen(memory_intrinsics[i]) == len) return true;
     }
     return false;
 }
@@ -71,43 +81,289 @@ static void html_qleei_highlight(String_Builder *sb, const char *code, size_t le
     }
 }
 
+static const char *find_header(const char *data, size_t len, const char *header) {
+    size_t header_len = strlen(header);
+    for (size_t i = 0; i + header_len <= len; i++) {
+        if (strncmp(data + i, header, header_len) == 0) {
+            return data + i;
+        }
+    }
+    return NULL;
+}
+
+static const char *find_next_header(const char *data, size_t len, const char *start) {
+    for (const char *p = start; p < data + len - 2; p++) {
+        if (p[0] == '#' && p[1] == '#' && (p[2] == ' ' || p[2] == '#')) {
+            return p;
+        }
+    }
+    return data + len;
+}
+
+static void unescape_underscores(char *dest, const char *src, size_t src_len) {
+    size_t d = 0;
+    for (size_t s = 0; s < src_len; s++) {
+        if (src[s] == '\\' && s + 1 < src_len && src[s+1] == '_') {
+            dest[d++] = '_';
+            s++;
+        } else {
+            dest[d++] = src[s];
+        }
+    }
+    dest[d] = '\0';
+}
+
+static int item_matches_name(const char *line, size_t line_len, const char *name) {
+    size_t name_len = strlen(name);
+    if (line_len < 4 + name_len) return 0;
+    if (strncmp(line, "- ", 2) != 0) return 0;
+    if (strncmp(line + 2, name, name_len) != 0) return 0;
+    char next = line[2 + name_len];
+    return (next == ':' || next == ' ' || next == '\0');
+}
+
+static void trim_string(const char **start, const char *end) {
+    while (*start < end && (**start == ' ' || **start == '\t')) (*start)++;
+    while (*start < end && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\n' || end[-1] == '\r')) end--;
+    *start = *start < end ? *start : end;
+}
+
+static String_Pool_Index extract_signature(const char *line, size_t line_len) {
+    const char *sig_start = NULL;
+    const char *sig_end = line + line_len;
+    
+    for (size_t i = 0; i + 4 <= line_len; i++) {
+        if (strncmp(line + i, " ::", 3) == 0) {
+            sig_start = line + i + 3;
+            while (sig_start < line + line_len && *sig_start == ' ') sig_start++;
+            break;
+        }
+    }
+    
+    if (!sig_start) return Null_String_Pool_Index;
+    
+    const char *end = sig_start;
+    while (end < line + line_len && *end != '\n') end++;
+    while (end > sig_start && (end[-1] == ' ' || end[-1] == '\t')) end--;
+    
+    if (end <= sig_start) return Null_String_Pool_Index;
+    
+    size_t len = end - sig_start;
+    char *buf = temp_alloc(len + 1);
+    memcpy(buf, sig_start, len);
+    buf[len] = '\0';
+    
+    return pool_strdup(buf);
+}
+
+static String_Pool_Index extract_string(const char *start, size_t len) {
+    while (len > 0 && (start[0] == ' ' || start[0] == '\t' || start[0] == '\n' || start[0] == '\r')) { start++; len--; }
+    while (len > 0 && (start[len-1] == ' ' || start[len-1] == '\t' || start[len-1] == '\n' || start[len-1] == '\r')) len--;
+    if (len == 0) return pool_strdup("");
+    char *buf = temp_alloc(len + 1);
+    memcpy(buf, start, len);
+    buf[len] = '\0';
+    char *trimmed = buf;
+    while (*trimmed == ' ') trimmed++;
+    return pool_strdup(trimmed);
+}
+
+static String_Pool_Index extract_description(const char *start, const char *end) {
+    trim_string(&start, end);
+    if (start >= end) return pool_strdup("");
+    
+    String_Builder sb = {0};
+    const char *p = start;
+    
+    while (p < end && *p != '`') {
+        if (*p == '\n') {
+            if (sb.count > 0 && sb.items[sb.count-1] == ' ') sb.count--;
+            break;
+        }
+        if (*p != ' ' && *p != '\t') {
+            da_append(&sb, *p);
+        } else if (sb.count > 0 && isalpha(sb.items[sb.count-1])) {
+            da_append(&sb, *p);
+        }
+        p++;
+    }
+    
+    while (sb.count > 0 && (sb.items[sb.count-1] == ' ' || sb.items[sb.count-1] == '\t')) {
+        sb.count--;
+    }
+    
+    da_append(&sb, '\0');
+    String_Pool_Index result = pool_strdup(sb.items);
+    sb_free(sb);
+    return result;
+}
+
+static String_Pool_Index extract_type_description(const char *section_start, const char *section_end, const char *type_name) {
+    const char *line = section_start;
+    while (line < section_end) {
+        const char *line_end = line;
+        while (line_end < section_end && *line_end != '\n') line_end++;
+        
+        char buf[256];
+        unescape_underscores(buf, line, line_end - line);
+        
+        if (item_matches_name(buf, strlen(buf), type_name)) {
+            const char *desc_start = buf + 2 + strlen(type_name);
+            while (*desc_start == ' ' || *desc_start == ':') desc_start++;
+            return pool_strdup(desc_start);
+        }
+        
+        line = line_end + 1;
+        while (line < section_end && *line == '\n') line++;
+    }
+    return pool_strdup("");
+}
+
+static String_Pool_Index extract_intrinsic_signature(const char *section_start, const char *section_end, const char *intrinsic_name) {
+    const char *line = section_start;
+    while (line < section_end) {
+        const char *line_end = line;
+        while (line_end < section_end && *line_end != '\n') line_end++;
+        
+        char buf[512];
+        unescape_underscores(buf, line, line_end - line);
+        size_t buf_len = strlen(buf);
+        
+        if (item_matches_name(buf, buf_len, intrinsic_name) && buf_len > strlen(intrinsic_name) + 4 && strstr(buf, "::") != NULL) {
+            char *sig_start = strstr(buf, "::");
+            if (sig_start) {
+                sig_start += 2;
+                while (*sig_start == ' ') sig_start++;
+                while (sig_start > buf && sig_start[-1] == ' ') sig_start--;
+                
+                size_t name_len = strlen(intrinsic_name);
+                char *full_sig = temp_alloc(name_len + 4 + strlen(sig_start) + 1);
+                snprintf(full_sig, name_len + 4 + strlen(sig_start) + 1, "%s :: %s", intrinsic_name, sig_start);
+                return pool_strdup(full_sig);
+            }
+        }
+        
+        line = line_end + 1;
+        while (line < section_end && *line == '\n') line++;
+    }
+    return pool_strdup("");
+}
+
+static String_Pool_Index extract_intrinsic_description(const char *section_start, const char *section_end, const char *intrinsic_name) {
+    const char *line = section_start;
+    while (line < section_end) {
+        const char *line_end = line;
+        while (line_end < section_end && *line_end != '\n') line_end++;
+        
+        char buf[512];
+        unescape_underscores(buf, line, line_end - line);
+        size_t buf_len = strlen(buf);
+        
+        if (item_matches_name(buf, buf_len, intrinsic_name) && buf_len > strlen(intrinsic_name) + 4 && strstr(buf, "::") != NULL) {
+            const char *next_line = line_end + 1;
+            while (next_line < section_end && (*next_line == ' ' || *next_line == '\t')) next_line++;
+            
+            if (next_line < section_end && next_line[0] == '-' && next_line[1] == ' ') {
+                next_line += 2;
+                while (next_line < section_end && (*next_line == ' ' || *next_line == '\t')) next_line++;
+                
+                const char *desc_end = next_line;
+                while (desc_end < section_end && *desc_end != '\n') desc_end++;
+                
+                while (desc_end > next_line && (desc_end[-1] == ' ' || desc_end[-1] == '\t')) desc_end--;
+                
+                return extract_string(next_line, desc_end - next_line);
+            }
+        }
+        
+        line = line_end + 1;
+        while (line < section_end && *line == '\n') line++;
+    }
+    return pool_strdup("");
+}
+
+static const char *extract_code_block(const char *section_start, const char *section_end) {
+    const char *fence = NULL;
+    for (const char *p = section_start; p < section_end - 7; p++) {
+        if (strncmp(p, "```qleei", 7) == 0) {
+            fence = p;
+            break;
+        }
+    }
+    if (!fence) return NULL;
+    
+    const char *code_start = fence + 7;
+    while (code_start < section_end && *code_start != '\n') code_start++;
+    if (code_start < section_end) code_start++;
+    
+    const char *fence_end = NULL;
+    for (const char *p = code_start; p < section_end - 3; p++) {
+        if (strncmp(p, "```", 3) == 0) {
+            fence_end = p;
+            break;
+        }
+    }
+    if (!fence_end) fence_end = section_end;
+    
+    while (fence_end > code_start && (fence_end[-1] == '\n' || fence_end[-1] == ' ' || fence_end[-1] == '\t')) {
+        fence_end--;
+    }
+    
+    size_t code_len = fence_end - code_start;
+    char *code = temp_alloc(code_len + 1);
+    memcpy(code, code_start, code_len);
+    code[code_len] = '\0';
+    
+    return code;
+}
+
 static void doc_gen_lang_ref_html(const char *output_path) {
+    String_Builder content = {0};
+    if (!read_entire_file("README.md", &content)) {
+        fprintf(stderr, "Failed to read README.md\n");
+        return;
+    }
+    const char *data = content.items;
+    size_t len = content.count;
+
+    const char *types_start = find_header(data, len, "### Types");
+    const char *intrinsics_start = find_header(data, len, "### Intrinsics");
+    const char *loops_start = find_header(data, len, "## Loops");
+    const char *procs_start = find_header(data, len, "## User Procedures");
+
+    const char *printing_start = find_header(data, len, "Printing:");
+    const char *stack_start = find_header(data, len, "General Stack Operations:");
+    const char *memory_start = find_header(data, len, "Memory Management:");
+
     String_Builder html = {0};
     da_reserve(&html, 64 * 1024);
 
     html_doc_open(&html);
 
     sb_append_cstr(&html, "<h2>Types</h2>\n");
-    sb_append_cstr(&html, "<a href=\"#number\">number</a>\n");
-    sb_append_cstr(&html, "<a href=\"#bool\">bool</a>\n");
-    sb_append_cstr(&html, "<a href=\"#pointer\">pointer</a>\n");
+    sb_appendf(&html, "<details>\n<summary>Types (%zu)</summary>\n<div class=\"group-items\">\n", types_count);
+    for (size_t i = 0; i < types_count; i++) {
+        sb_appendf(&html, "<a href=\"#%s\">%s</a>\n", types[i], types[i]);
+    }
+    sb_append_cstr(&html, "</div>\n</details>\n");
 
     sb_append_cstr(&html, "<h2>Intrinsics</h2>\n");
-    sb_append_cstr(&html, "<details>\n<summary>Printing (5)</summary>\n<div class=\"group-items\">\n");
-    sb_append_cstr(&html, "<a href=\"#print_number\">print_number</a>\n");
-    sb_append_cstr(&html, "<a href=\"#print_ptr\">print_ptr</a>\n");
-    sb_append_cstr(&html, "<a href=\"#print_char\">print_char</a>\n");
-    sb_append_cstr(&html, "<a href=\"#print_zstr\">print_zstr</a>\n");
-    sb_append_cstr(&html, "<a href=\"#print_stack\">print_stack</a>\n");
+    sb_appendf(&html, "<details>\n<summary>Printing (%zu)</summary>\n<div class=\"group-items\">\n", sizeof(printing_intrinsics)/sizeof(printing_intrinsics[0]));
+    for (size_t i = 0; i < sizeof(printing_intrinsics)/sizeof(printing_intrinsics[0]); i++) {
+        sb_appendf(&html, "<a href=\"#%s\">%s</a>\n", printing_intrinsics[i], printing_intrinsics[i]);
+    }
     sb_append_cstr(&html, "</div>\n</details>\n");
 
-    sb_append_cstr(&html, "<details>\n<summary>Stack Operations (7)</summary>\n<div class=\"group-items\">\n");
-    sb_append_cstr(&html, "<a href=\"#dup\">dup</a>\n");
-    sb_append_cstr(&html, "<a href=\"#drop\">drop</a>\n");
-    sb_append_cstr(&html, "<a href=\"#rot2\">rot2</a>\n");
-    sb_append_cstr(&html, "<a href=\"#swap2\">swap2</a>\n");
-    sb_append_cstr(&html, "<a href=\"#rot3\">rot3</a>\n");
-    sb_append_cstr(&html, "<a href=\"#swap3\">swap3</a>\n");
-    sb_append_cstr(&html, "<a href=\"#over\">over</a>\n");
+    sb_appendf(&html, "<details>\n<summary>Stack Operations (%zu)</summary>\n<div class=\"group-items\">\n", sizeof(stack_intrinsics)/sizeof(stack_intrinsics[0]));
+    for (size_t i = 0; i < sizeof(stack_intrinsics)/sizeof(stack_intrinsics[0]); i++) {
+        sb_appendf(&html, "<a href=\"#%s\">%s</a>\n", stack_intrinsics[i], stack_intrinsics[i]);
+    }
     sb_append_cstr(&html, "</div>\n</details>\n");
 
-    sb_append_cstr(&html, "<details>\n<summary>Memory Management (6)</summary>\n<div class=\"group-items\">\n");
-    sb_append_cstr(&html, "<a href=\"#mem_alloc\">mem_alloc</a>\n");
-    sb_append_cstr(&html, "<a href=\"#mem_free\">mem_free</a>\n");
-    sb_append_cstr(&html, "<a href=\"#mem_load_ui8\">mem_load_ui8</a>\n");
-    sb_append_cstr(&html, "<a href=\"#mem_save_ui8\">mem_save_ui8</a>\n");
-    sb_append_cstr(&html, "<a href=\"#mem_load_ui32\">mem_load_ui32</a>\n");
-    sb_append_cstr(&html, "<a href=\"#mem_save_ui32\">mem_save_ui32</a>\n");
+    sb_appendf(&html, "<details>\n<summary>Memory Management (%zu)</summary>\n<div class=\"group-items\">\n", sizeof(memory_intrinsics)/sizeof(memory_intrinsics[0]));
+    for (size_t i = 0; i < sizeof(memory_intrinsics)/sizeof(memory_intrinsics[0]); i++) {
+        sb_appendf(&html, "<a href=\"#%s\">%s</a>\n", memory_intrinsics[i], memory_intrinsics[i]);
+    }
     sb_append_cstr(&html, "</div>\n</details>\n");
 
     sb_append_cstr(&html, "<h2>Loops</h2>\n");
@@ -119,177 +375,137 @@ static void doc_gen_lang_ref_html(const char *output_path) {
     html_main_open(&html);
 
     html_section_open(&html, "types", "Types", "The building blocks of data in QLeei");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"number\">\n");
-    sb_appendf(&html, "<h2>number</h2>\n");
-    sb_appendf(&html, "<div class=\"description\">Represented as a 64 bit floating point number</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"bool\">\n");
-    sb_appendf(&html, "<h2>bool</h2>\n");
-    sb_appendf(&html, "<div class=\"description\">Whatever is the bool type in stdbool.h which we copy pasted from the header in my machine</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"pointer\">\n");
-    sb_appendf(&html, "<h2>pointer</h2>\n");
-    sb_appendf(&html, "<div class=\"description\">Some address to the heap</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
+    for (size_t i = 0; i < types_count; i++) {
+        String_Pool_Index desc = extract_type_description(types_start, intrinsics_start, types[i]);
+        sb_appendf(&html, "<div class=\"item\" id=\"%s\">\n", types[i]);
+        sb_appendf(&html, "<h2>%s</h2>\n", types[i]);
+        sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(desc));
+        sb_appendf(&html, "</div>\n\n");
+    }
     html_section_close(&html);
 
     html_section_open(&html, "intrinsics", "Intrinsics", "Built-in procedures for stack operations, memory, and I/O");
 
-    sb_appendf(&html, "<h3>Printing</h3>\n");
+    if (printing_start && printing_start < (stack_start ? stack_start : loops_start)) {
+        const char *printing_end = stack_start ? stack_start : (loops_start ? loops_start : intrinsics_start + 100);
+        sb_append_cstr(&html, "<h3>Printing</h3>\n");
+        for (size_t i = 0; i < sizeof(printing_intrinsics)/sizeof(printing_intrinsics[0]); i++) {
+            String_Pool_Index sig = extract_intrinsic_signature(printing_start, printing_end, printing_intrinsics[i]);
+            String_Pool_Index desc = extract_intrinsic_description(printing_start, printing_end, printing_intrinsics[i]);
+            sb_appendf(&html, "<div class=\"item\" id=\"%s\">\n", printing_intrinsics[i]);
+            sb_appendf(&html, "<h2>%s</h2>\n", printing_intrinsics[i]);
+            if (sig.pool && strlen(Pooled_String(sig)) > 0) {
+                sb_appendf(&html, "<pre class=\"signature\"><code>");
+                html_escape(&html, Pooled_String(sig), sig.len);
+                sb_appendf(&html, "</code></pre>\n");
+            }
+            if (desc.pool && strlen(Pooled_String(desc)) > 0) {
+                sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(desc));
+            }
+            sb_appendf(&html, "</div>\n\n");
+        }
+    }
 
-    sb_appendf(&html, "<div class=\"item\" id=\"print_number\">\n");
-    sb_appendf(&html, "<h2>print_number</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>print_number :: [number]  -> []</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Consumes a number and prints it to stdout with a newline</div>\n");
-    sb_appendf(&html, "</div>\n\n");
+    if (stack_start && stack_start < (memory_start ? memory_start : loops_start)) {
+        const char *stack_end = memory_start ? memory_start : (loops_start ? loops_start : intrinsics_start + 100);
+        sb_append_cstr(&html, "<h3>Stack Operations</h3>\n");
+        for (size_t i = 0; i < sizeof(stack_intrinsics)/sizeof(stack_intrinsics[0]); i++) {
+            String_Pool_Index sig = extract_intrinsic_signature(stack_start, stack_end, stack_intrinsics[i]);
+            String_Pool_Index desc = extract_intrinsic_description(stack_start, stack_end, stack_intrinsics[i]);
+            sb_appendf(&html, "<div class=\"item\" id=\"%s\">\n", stack_intrinsics[i]);
+            sb_appendf(&html, "<h2>%s</h2>\n", stack_intrinsics[i]);
+            if (sig.pool && strlen(Pooled_String(sig)) > 0) {
+                sb_appendf(&html, "<pre class=\"signature\"><code>");
+                html_escape(&html, Pooled_String(sig), sig.len);
+                sb_appendf(&html, "</code></pre>\n");
+            }
+            if (desc.pool && strlen(Pooled_String(desc)) > 0) {
+                sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(desc));
+            }
+            sb_appendf(&html, "</div>\n\n");
+        }
+    }
 
-    sb_appendf(&html, "<div class=\"item\" id=\"print_ptr\">\n");
-    sb_appendf(&html, "<h2>print_ptr</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>print_ptr :: [pointer]  -> []</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Consumes a pointer and prints it to stdout with a newline</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"print_char\">\n");
-    sb_appendf(&html, "<h2>print_char</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>print_char :: [number]  -> []</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Consumes a number, casts it to a C char and prints it to stdout with a newline</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"print_zstr\">\n");
-    sb_appendf(&html, "<h2>print_zstr</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>print_zstr :: [pointer] -> []</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Consumes a pointer expecting it to be a null terminated string and prints it to stdout with a newline</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"print_stack\">\n");
-    sb_appendf(&html, "<h2>print_stack</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>print_stack :: [] -> []</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Prints the current stack to stdout read as top to bottom from left to right</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<h3>Stack Operations</h3>\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"dup\">\n");
-    sb_appendf(&html, "<h2>dup</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>dup :: [a] -> [a, a]</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Duplicates the element at the top of the stack</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"drop\">\n");
-    sb_appendf(&html, "<h2>drop</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>drop :: [a] -> []</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Drops the first element of the stack</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"rot2\">\n");
-    sb_appendf(&html, "<h2>rot2</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>rot2 :: [a, b] -> [b, a]</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Swaps the top and second to top elements of the stack</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"swap2\">\n");
-    sb_appendf(&html, "<h2>swap2</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>swap2 :: [a, b] -> [b, a]</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Alias for rot2. Swaps the top and second to top elements of the stack</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"rot3\">\n");
-    sb_appendf(&html, "<h2>rot3</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>rot3 :: [a, b, c] -> [b, c, a]</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Rotates the top 3 elements of the stack, so the first (top) goes to third, second goes to first and third goes to second</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"swap3\">\n");
-    sb_appendf(&html, "<h2>swap3</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>swap3 :: [a, b, c] -> [c, b, a]</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Swaps the 1st element with the 3rd element of the stack. It is the same as doing rot3 rot2</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"over\">\n");
-    sb_appendf(&html, "<h2>over</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>over :: [a, b] -> [b, a, b]</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Duplicates the 2nd element of the stack at the top of the stack. It is the same as doing rot2 dup rot3</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<h3>Memory Management</h3>\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"mem_alloc\">\n");
-    sb_appendf(&html, "<h2>mem_alloc</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>mem_alloc :: [number] -> [pointer]</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Consumes a number which is casted to an unsigned integer used for saying how many bytes to allocate. Program crashes if allocation fails</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"mem_free\">\n");
-    sb_appendf(&html, "<h2>mem_free</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>mem_free :: [pointer] -> []</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Consumes a pointer and frees the memory related to this pointer</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"mem_load_ui8\">\n");
-    sb_appendf(&html, "<h2>mem_load_ui8</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>mem_load_ui8 :: [pointer] -> [number]</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Consumes a pointer to read its value as an unsigned integer of 8 bits</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"mem_save_ui8\">\n");
-    sb_appendf(&html, "<h2>mem_save_ui8</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>mem_save_ui8 :: [pointer, number] -> []</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Consumes a pointer to write to it the value as an unsigned integer of 8 bits</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"mem_load_ui32\">\n");
-    sb_appendf(&html, "<h2>mem_load_ui32</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>mem_load_ui32 :: [pointer] -> [number]</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Consumes a pointer to read its value as an unsigned integer of 32 bits</div>\n");
-    sb_appendf(&html, "</div>\n\n");
-
-    sb_appendf(&html, "<div class=\"item\" id=\"mem_save_ui32\">\n");
-    sb_appendf(&html, "<h2>mem_save_ui32</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>mem_save_ui32 :: [pointer, number] -> []</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">Consumes a pointer to write to it the value as an unsigned integer of 32 bits</div>\n");
-    sb_appendf(&html, "</div>\n\n");
+    if (memory_start && memory_start < loops_start) {
+        sb_append_cstr(&html, "<h3>Memory Management</h3>\n");
+        for (size_t i = 0; i < sizeof(memory_intrinsics)/sizeof(memory_intrinsics[0]); i++) {
+            String_Pool_Index sig = extract_intrinsic_signature(memory_start, loops_start, memory_intrinsics[i]);
+            String_Pool_Index desc = extract_intrinsic_description(memory_start, loops_start, memory_intrinsics[i]);
+            sb_appendf(&html, "<div class=\"item\" id=\"%s\">\n", memory_intrinsics[i]);
+            sb_appendf(&html, "<h2>%s</h2>\n", memory_intrinsics[i]);
+            if (sig.pool && strlen(Pooled_String(sig)) > 0) {
+                sb_appendf(&html, "<pre class=\"signature\"><code>");
+                html_escape(&html, Pooled_String(sig), sig.len);
+                sb_appendf(&html, "</code></pre>\n");
+            }
+            if (desc.pool && strlen(Pooled_String(desc)) > 0) {
+                sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(desc));
+            }
+            sb_appendf(&html, "</div>\n\n");
+        }
+    }
 
     html_section_close(&html);
 
     html_section_open(&html, "loops", "Loops", "Control flow with while loops");
-
     sb_appendf(&html, "<div class=\"item\" id=\"while\">\n");
     sb_appendf(&html, "<h2>while</h2>\n");
     sb_appendf(&html, "<pre class=\"signature\"><code>while &lt;condition&gt; begin &lt;body&gt; end</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">QLeei only supports while loops. The condition is evaluated before each iteration.</div>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>");
-    const char *while_example = "while dup 0 < begin\n    // body\nend";
-    html_qleei_highlight(&html, while_example, strlen(while_example));
-    sb_appendf(&html, "</code></pre>\n");
+    String_Pool_Index loop_desc_idx = extract_description(loops_start + 9, procs_start);
+    if (loop_desc_idx.pool && strlen(Pooled_String(loop_desc_idx)) > 0) {
+        sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(loop_desc_idx));
+    }
+    const char *loop_code = extract_code_block(loops_start, procs_start);
+    if (loop_code) {
+        sb_appendf(&html, "<pre class=\"signature\"><code>");
+        html_qleei_highlight(&html, loop_code, strlen(loop_code));
+        sb_appendf(&html, "</code></pre>\n");
+    }
     sb_appendf(&html, "</div>\n\n");
-
     html_section_close(&html);
 
     html_section_open(&html, "procedures", "User Procedures", "Defining your own procedures");
-
     sb_appendf(&html, "<div class=\"item\" id=\"proc\">\n");
     sb_appendf(&html, "<h2>proc</h2>\n");
     sb_appendf(&html, "<pre class=\"signature\"><code>proc &lt;name&gt; [&lt;inputs&gt;] -&gt; [&lt;outputs&gt;] &lt;body&gt; end</code></pre>\n");
-    sb_appendf(&html, "<div class=\"description\">You can define your own procedures in QLeei by using the proc keyword. Input is type checked at RUNTIME. Output types are not type checked.</div>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>");
-    const char *proc_example = "proc ascii_E [] -> [number] 69 end";
-    html_qleei_highlight(&html, proc_example, strlen(proc_example));
-    sb_appendf(&html, "</code></pre>\n");
+    String_Pool_Index proc_desc_idx = extract_description(procs_start + 19, data + len);
+    if (proc_desc_idx.pool && strlen(Pooled_String(proc_desc_idx)) > 0) {
+        sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(proc_desc_idx));
+    }
+    const char *proc_code = extract_code_block(procs_start, data + len);
+    if (proc_code) {
+        sb_appendf(&html, "<pre class=\"signature\"><code>");
+        html_qleei_highlight(&html, proc_code, strlen(proc_code));
+        sb_appendf(&html, "</code></pre>\n");
+    }
     sb_appendf(&html, "</div>\n\n");
-
     html_section_close(&html);
 
     sb_append_cstr(&html, "</main>\n</div>\n</body>\n</html>\n");
 
     write_entire_file(output_path, html.items, html.count);
     sb_free(html);
+    sb_free(content);
 }
 
 static void doc_gen_lang_ref_md(const char *output_path) {
+    String_Builder content = {0};
+    if (!read_entire_file("README.md", &content)) {
+        fprintf(stderr, "Failed to read README.md\n");
+        return;
+    }
+    const char *data = content.items;
+    size_t len = content.count;
+
+    const char *types_start = find_header(data, len, "### Types");
+    const char *intrinsics_start = find_header(data, len, "### Intrinsics");
+    const char *loops_start = find_header(data, len, "## Loops");
+    const char *procs_start = find_header(data, len, "## User Procedures");
+
+    const char *printing_start = find_header(data, len, "Printing:");
+    const char *stack_start = find_header(data, len, "General Stack Operations:");
+    const char *memory_start = find_header(data, len, "Memory Management:");
+
     String_Builder md = {0};
     da_reserve(&md, 32 * 1024);
 
@@ -297,59 +513,81 @@ static void doc_gen_lang_ref_md(const char *output_path) {
     sb_append_cstr(&md, "QLeei is a simple interpreted stack-based language.\n\n");
 
     sb_append_cstr(&md, "## Types\n\n");
-    sb_append_cstr(&md, "### number\n\nRepresented as a 64 bit floating point number\n\n");
-    sb_append_cstr(&md, "### bool\n\nWhatever is the bool type in stdbool.h which we copy pasted from the header in my machine\n\n");
-    sb_append_cstr(&md, "### pointer\n\nSome address to the heap\n\n");
+    for (size_t i = 0; i < types_count; i++) {
+        String_Pool_Index desc = extract_type_description(types_start, intrinsics_start, types[i]);
+        sb_appendf(&md, "### %s\n\n", types[i]);
+        sb_appendf(&md, "%s\n\n", Pooled_String(desc));
+    }
 
     sb_append_cstr(&md, "## Intrinsics\n\n");
-    sb_append_cstr(&md, "### Printing\n\n");
-    sb_append_cstr(&md, "#### print_number\n\n```\nprint_number :: [number] -> []\n```\n\nConsumes a number and prints it to stdout with a newline\n\n");
 
-    sb_append_cstr(&md, "#### print_ptr\n\n```\nprint_ptr :: [pointer] -> []\n```\n\nConsumes a pointer and prints it to stdout with a newline\n\n");
+    if (printing_start && printing_start < (stack_start ? stack_start : loops_start)) {
+        const char *printing_end = stack_start ? stack_start : (loops_start ? loops_start : intrinsics_start + 100);
+        sb_append_cstr(&md, "### Printing\n\n");
+        for (size_t i = 0; i < sizeof(printing_intrinsics)/sizeof(printing_intrinsics[0]); i++) {
+            String_Pool_Index sig = extract_intrinsic_signature(printing_start, printing_end, printing_intrinsics[i]);
+            String_Pool_Index desc = extract_intrinsic_description(printing_start, printing_end, printing_intrinsics[i]);
+            sb_appendf(&md, "#### %s\n\n", printing_intrinsics[i]);
+            if (sig.pool && strlen(Pooled_String(sig)) > 0) {
+                sb_appendf(&md, "```\n%s\n```\n\n", Pooled_String(sig));
+            }
+            if (desc.pool && strlen(Pooled_String(desc)) > 0) {
+                sb_appendf(&md, "%s\n\n", Pooled_String(desc));
+            }
+        }
+    }
 
-    sb_append_cstr(&md, "#### print_char\n\n```\nprint_char :: [number] -> []\n```\n\nConsumes a number, casts it to a C char and prints it to stdout with a newline\n\n");
+    if (stack_start && stack_start < (memory_start ? memory_start : loops_start)) {
+        const char *stack_end = memory_start ? memory_start : (loops_start ? loops_start : intrinsics_start + 100);
+        sb_append_cstr(&md, "### Stack Operations\n\n");
+        for (size_t i = 0; i < sizeof(stack_intrinsics)/sizeof(stack_intrinsics[0]); i++) {
+            String_Pool_Index sig = extract_intrinsic_signature(stack_start, stack_end, stack_intrinsics[i]);
+            String_Pool_Index desc = extract_intrinsic_description(stack_start, stack_end, stack_intrinsics[i]);
+            sb_appendf(&md, "#### %s\n\n", stack_intrinsics[i]);
+            if (sig.pool && strlen(Pooled_String(sig)) > 0) {
+                sb_appendf(&md, "```\n%s\n```\n\n", Pooled_String(sig));
+            }
+            if (desc.pool && strlen(Pooled_String(desc)) > 0) {
+                sb_appendf(&md, "%s\n\n", Pooled_String(desc));
+            }
+        }
+    }
 
-    sb_append_cstr(&md, "#### print_zstr\n\n```\nprint_zstr :: [pointer] -> []\n```\n\nConsumes a pointer expecting it to be a null terminated string and prints it to stdout with a newline\n\n");
-
-    sb_append_cstr(&md, "#### print_stack\n\n```\nprint_stack :: [] -> []\n```\n\nPrints the current stack to stdout read as top to bottom from left to right\n\n");
-
-    sb_append_cstr(&md, "### Stack Operations\n\n");
-    sb_append_cstr(&md, "#### dup\n\n```\ndup :: [a] -> [a, a]\n```\n\nDuplicates the element at the top of the stack\n\n");
-
-    sb_append_cstr(&md, "#### drop\n\n```\ndrop :: [a] -> []\n```\n\nDrops the first element of the stack\n\n");
-
-    sb_append_cstr(&md, "#### rot2\n\n```\nrot2 :: [a, b] -> [b, a]\n```\n\nSwaps the top and second to top elements of the stack\n\n");
-
-    sb_append_cstr(&md, "#### swap2\n\n```\nswap2 :: [a, b] -> [b, a]\n```\n\nAlias for rot2. Swaps the top and second to top elements of the stack\n\n");
-
-    sb_append_cstr(&md, "#### rot3\n\n```\nrot3 :: [a, b, c] -> [b, c, a]\n```\n\nRotates the top 3 elements of the stack, so the first (top) goes to third, second goes to first and third goes to second\n\n");
-
-    sb_append_cstr(&md, "#### swap3\n\n```\nswap3 :: [a, b, c] -> [c, b, a]\n```\n\nSwaps the 1st element with the 3rd element of the stack. It is the same as doing rot3 rot2\n\n");
-
-    sb_append_cstr(&md, "#### over\n\n```\nover :: [a, b] -> [b, a, b]\n```\n\nDuplicates the 2nd element of the stack at the top of the stack. It is the same as doing rot2 dup rot3\n\n");
-
-    sb_append_cstr(&md, "### Memory Management\n\n");
-    sb_append_cstr(&md, "#### mem_alloc\n\n```\nmem_alloc :: [number] -> [pointer]\n```\n\nConsumes a number which is casted to an unsigned integer used for saying how many bytes to allocate. Program crashes if allocation fails\n\n");
-
-    sb_append_cstr(&md, "#### mem_free\n\n```\nmem_free :: [pointer] -> []\n```\n\nConsumes a pointer and frees the memory related to this pointer\n\n");
-
-    sb_append_cstr(&md, "#### mem_load_ui8\n\n```\nmem_load_ui8 :: [pointer] -> [number]\n```\n\nConsumes a pointer to read its value as an unsigned integer of 8 bits\n\n");
-
-    sb_append_cstr(&md, "#### mem_save_ui8\n\n```\nmem_save_ui8 :: [pointer, number] -> []\n```\n\nConsumes a pointer to write to it the value as an unsigned integer of 8 bits\n\n");
-
-    sb_append_cstr(&md, "#### mem_load_ui32\n\n```\nmem_load_ui32 :: [pointer] -> [number]\n```\n\nConsumes a pointer to read its value as an unsigned integer of 32 bits\n\n");
-
-    sb_append_cstr(&md, "#### mem_save_ui32\n\n```\nmem_save_ui32 :: [pointer, number] -> []\n```\n\nConsumes a pointer to write to it the value as an unsigned integer of 32 bits\n\n");
+    if (memory_start && memory_start < loops_start) {
+        sb_append_cstr(&md, "### Memory Management\n\n");
+        for (size_t i = 0; i < sizeof(memory_intrinsics)/sizeof(memory_intrinsics[0]); i++) {
+            String_Pool_Index sig = extract_intrinsic_signature(memory_start, loops_start, memory_intrinsics[i]);
+            String_Pool_Index desc = extract_intrinsic_description(memory_start, loops_start, memory_intrinsics[i]);
+            sb_appendf(&md, "#### %s\n\n", memory_intrinsics[i]);
+            if (sig.pool && strlen(Pooled_String(sig)) > 0) {
+                sb_appendf(&md, "```\n%s\n```\n\n", Pooled_String(sig));
+            }
+            if (desc.pool && strlen(Pooled_String(desc)) > 0) {
+                sb_appendf(&md, "%s\n\n", Pooled_String(desc));
+            }
+        }
+    }
 
     sb_append_cstr(&md, "## Loops\n\n");
-    sb_append_cstr(&md, "### while\n\n```\nwhile <condition> begin <body> end\n```\n\nQLeei only supports while loops. The condition is evaluated before each iteration.\n\n");
+    sb_appendf(&md, "### while\n\n");
+    sb_append_cstr(&md, "```\nwhile <condition> begin <body> end\n```\n\n");
+    String_Pool_Index loop_desc_idx = extract_description(loops_start + 9, procs_start);
+    if (loop_desc_idx.pool && strlen(Pooled_String(loop_desc_idx)) > 0) {
+        sb_appendf(&md, "%s\n\n", Pooled_String(loop_desc_idx));
+    }
 
     sb_append_cstr(&md, "## User Procedures\n\n");
-    sb_append_cstr(&md, "### proc\n\n```\nproc <name> [<inputs>] -> [<outputs>] <body> end\n```\n\nYou can define your own procedures in QLeei by using the proc keyword. Input is type checked at RUNTIME. Output types are not type checked.\n\n");
+    sb_appendf(&md, "### proc\n\n");
+    sb_append_cstr(&md, "```\nproc <name> [<inputs>] -> [<outputs>] <body> end\n```\n\n");
+    String_Pool_Index proc_desc_idx = extract_description(procs_start + 19, data + len);
+    if (proc_desc_idx.pool && strlen(Pooled_String(proc_desc_idx)) > 0) {
+        sb_appendf(&md, "%s\n\n", Pooled_String(proc_desc_idx));
+    }
 
     sb_append_null(&md);
     write_entire_file(output_path, md.items, md.count - 1);
     sb_free(md);
+    sb_free(content);
 }
 
 void doc_gen_lang_ref(const char *output_dir) {
