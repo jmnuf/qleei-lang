@@ -184,7 +184,7 @@ static String_Pool_Index extract_paragraph_html(Nob_String_View sv) {
       }
       seen_content = true;
 
-      if (sv_starts_with(trimmed, "```")) {
+      if (sv_starts_with(trimmed, sv_from_cstr("```"))) {
         break;
       }
 
