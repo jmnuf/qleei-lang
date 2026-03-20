@@ -69,14 +69,15 @@ Memory Management:
 ## Loops
 
 QLeei only supports while loops and if you don't know how while loops work I think you are in the wrong place.
-The syntax is the following:
 ```qleei
 while <condition> begin
     <body>
 end
 ```
-Example loop printing numbers 1 to 69
+
+Example:
 ```qleei
+// Printing numbers 1 to 69
 1 while dup 70 - begin
     dup print_number
     1 +
@@ -89,10 +90,8 @@ You can define your own procedures in QLeei by using the `proc` keyword.
 
 When defining a procedure you must define an expected input types and supposed output types. The input is type checked at RUNTIME!
 Output types are not type checked at all, they are there to make you feel better about yourself.
-
-Syntax is like:
 ```qleei
-proc <name-of-proc> [<..inputs>] -> [<..outputs>] <body> end
+proc <name> [<..inputs>] -> [<..outputs>] <body> end
 ```
 
 Examples:

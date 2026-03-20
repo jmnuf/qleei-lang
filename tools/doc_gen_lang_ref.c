@@ -128,7 +128,7 @@ static void trim_string(const char **start, const char *end) {
 static String_Pool_Index extract_signature(const char *line, size_t line_len) {
     const char *sig_start = NULL;
     const char *sig_end = line + line_len;
-    
+
     for (size_t i = 0; i + 4 <= line_len; i++) {
         if (strncmp(line + i, " ::", 3) == 0) {
             sig_start = line + i + 3;
@@ -136,20 +136,20 @@ static String_Pool_Index extract_signature(const char *line, size_t line_len) {
             break;
         }
     }
-    
+
     if (!sig_start) return Null_String_Pool_Index;
-    
+
     const char *end = sig_start;
     while (end < line + line_len && *end != '\n') end++;
     while (end > sig_start && (end[-1] == ' ' || end[-1] == '\t')) end--;
-    
+
     if (end <= sig_start) return Null_String_Pool_Index;
-    
+
     size_t len = end - sig_start;
     char *buf = temp_alloc(len + 1);
     memcpy(buf, sig_start, len);
     buf[len] = '\0';
-    
+
     return pool_strdup(buf);
 }
 
@@ -168,32 +168,36 @@ static String_Pool_Index extract_string(const char *start, size_t len) {
 static String_Pool_Index extract_paragraph_html(Nob_String_View sv) {
     String_Builder sb = {0};
     bool seen_content = false;
-    
+
     while (sv.count > 0) {
-        Nob_String_View line = sv_chop_by_delim(&sv, '\n');
-        
-        Nob_String_View trimmed = sv_trim(line);
-        if (trimmed.count == 0) {
-            if (seen_content) {
-                sb_append_cstr(&sb, "<br>");
-            }
-            continue;
+      Nob_String_View line = sv_chop_by_delim(&sv, '\n');
+
+      Nob_String_View trimmed = sv_trim(line);
+      if (trimmed.count == 0) {
+        if (!seen_content) {
+          sb_append_cstr(&sb, "<br>");
+          seen_content = true;
+        } else {
+          seen_content = false;
         }
-        
-        if (trimmed.count >= 3 && strncmp(trimmed.data, "```", 3) == 0) {
-            break;
-        }
-        
-        if (seen_content) {
-            da_append(&sb, ' ');
-        }
-        
-        for (size_t i = 0; i < trimmed.count; i++) {
-            da_append(&sb, trimmed.data[i]);
-        }
-        seen_content = true;
+        continue;
+      }
+      seen_content = true;
+
+      if (sv_starts_with(trimmed, "```")) {
+        break;
+      }
+
+      if (seen_content) {
+        da_append(&sb, ' ');
+      }
+
+      for (size_t i = 0; i < trimmed.count; i++) {
+        da_append(&sb, trimmed.data[i]);
+      }
+      seen_content = true;
     }
-    
+
     da_append(&sb, '\0');
     String_Pool_Index result = pool_strdup(sb.items);
     sb_free(sb);
@@ -204,10 +208,10 @@ static String_Pool_Index extract_paragraph_md(Nob_String_View sv) {
     String_Builder sb = {0};
     bool seen_content = false;
     bool pending_newline = false;
-    
+
     while (sv.count > 0) {
         Nob_String_View line = sv_chop_by_delim(&sv, '\n');
-        
+
         Nob_String_View trimmed = sv_trim(line);
         if (trimmed.count == 0) {
             if (seen_content) {
@@ -215,24 +219,24 @@ static String_Pool_Index extract_paragraph_md(Nob_String_View sv) {
             }
             continue;
         }
-        
+
         if (trimmed.count >= 3 && strncmp(trimmed.data, "```", 3) == 0) {
             break;
         }
-        
+
         if (pending_newline) {
             da_append(&sb, '\n');
             pending_newline = false;
         } else if (seen_content) {
             da_append(&sb, ' ');
         }
-        
+
         for (size_t i = 0; i < trimmed.count; i++) {
             da_append(&sb, trimmed.data[i]);
         }
         seen_content = true;
     }
-    
+
     da_append(&sb, '\0');
     String_Pool_Index result = pool_strdup(sb.items);
     sb_free(sb);
@@ -244,16 +248,16 @@ static String_Pool_Index extract_type_description(const char *section_start, con
     while (line < section_end) {
         const char *line_end = line;
         while (line_end < section_end && *line_end != '\n') line_end++;
-        
+
         char buf[256];
         unescape_underscores(buf, line, line_end - line);
-        
+
         if (item_matches_name(buf, strlen(buf), type_name)) {
             const char *desc_start = buf + 2 + strlen(type_name);
             while (*desc_start == ' ' || *desc_start == ':') desc_start++;
             return pool_strdup(desc_start);
         }
-        
+
         line = line_end + 1;
         while (line < section_end && *line == '\n') line++;
     }
@@ -265,25 +269,25 @@ static String_Pool_Index extract_intrinsic_signature(const char *section_start, 
     while (line < section_end) {
         const char *line_end = line;
         while (line_end < section_end && *line_end != '\n') line_end++;
-        
+
         char buf[512];
         unescape_underscores(buf, line, line_end - line);
         size_t buf_len = strlen(buf);
-        
+
         if (item_matches_name(buf, buf_len, intrinsic_name) && buf_len > strlen(intrinsic_name) + 4 && strstr(buf, "::") != NULL) {
             char *sig_start = strstr(buf, "::");
             if (sig_start) {
                 sig_start += 2;
                 while (*sig_start == ' ') sig_start++;
                 while (sig_start > buf && sig_start[-1] == ' ') sig_start--;
-                
+
                 size_t name_len = strlen(intrinsic_name);
                 char *full_sig = temp_alloc(name_len + 4 + strlen(sig_start) + 1);
                 snprintf(full_sig, name_len + 4 + strlen(sig_start) + 1, "%s :: %s", intrinsic_name, sig_start);
                 return pool_strdup(full_sig);
             }
         }
-        
+
         line = line_end + 1;
         while (line < section_end && *line == '\n') line++;
     }
@@ -295,28 +299,28 @@ static String_Pool_Index extract_intrinsic_description(const char *section_start
     while (line < section_end) {
         const char *line_end = line;
         while (line_end < section_end && *line_end != '\n') line_end++;
-        
+
         char buf[512];
         unescape_underscores(buf, line, line_end - line);
         size_t buf_len = strlen(buf);
-        
+
         if (item_matches_name(buf, buf_len, intrinsic_name) && buf_len > strlen(intrinsic_name) + 4 && strstr(buf, "::") != NULL) {
             const char *next_line = line_end + 1;
             while (next_line < section_end && (*next_line == ' ' || *next_line == '\t')) next_line++;
-            
+
             if (next_line < section_end && next_line[0] == '-' && next_line[1] == ' ') {
                 next_line += 2;
                 while (next_line < section_end && (*next_line == ' ' || *next_line == '\t')) next_line++;
-                
+
                 const char *desc_end = next_line;
                 while (desc_end < section_end && *desc_end != '\n') desc_end++;
-                
+
                 while (desc_end > next_line && (desc_end[-1] == ' ' || desc_end[-1] == '\t')) desc_end--;
-                
+
                 return extract_string(next_line, desc_end - next_line);
             }
         }
-        
+
         line = line_end + 1;
         while (line < section_end && *line == '\n') line++;
     }
@@ -336,11 +340,11 @@ static const char *extract_code_block(const char *section_start, const char *sec
         }
     }
     if (!fence) return NULL;
-    
+
     const char *code_start = fence + 7;
     while (code_start < section_end && *code_start != '\n') code_start++;
     if (code_start < section_end) code_start++;
-    
+
     const char *fence_end = NULL;
     for (const char *p = code_start; p < section_end - 3; p++) {
         if (strncmp(p, "```", 3) == 0) {
@@ -349,16 +353,16 @@ static const char *extract_code_block(const char *section_start, const char *sec
         }
     }
     if (!fence_end) fence_end = section_end;
-    
+
     while (fence_end > code_start && (fence_end[-1] == '\n' || fence_end[-1] == ' ' || fence_end[-1] == '\t')) {
         fence_end--;
     }
-    
+
     size_t code_len = fence_end - code_start;
     char *code = temp_alloc(code_len + 1);
     memcpy(code, code_start, code_len);
     code[code_len] = '\0';
-    
+
     return code;
 }
 
