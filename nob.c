@@ -157,32 +157,59 @@ bool build_unit(Cmd *cmd, Unit *u) {
 
 
 bool build_etags(Cmd *cmd) {
+  bool result = true;
+  size_t save_point = temp_save();
+
   File_Paths children = {0};
-  if (!read_entire_dir(".", &children)) return false;
+  struct {
+    const char **items;
+    size_t count;
+    size_t capacity;
+  } files = {0};
+
+  if (!read_entire_dir(".", &children)) return_defer(false);
 
   const char *output_path = "TAGS";
 
-  for (ssize_t i = children.count-1; i >= 0; --i) {
-    const char *file_path = children.items[i];
-    String_View sv = sv_from_cstr(file_path);
-    if (sv_end_with(sv, ".c") || sv_end_with(sv, ".h")) continue;
-    da_remove_unordered(&children, i);
+  for (size_t i = 0; i < children.count; ++i) {
+    const char *file_name = children.items[i];
+    String_View sv = sv_from_cstr(file_name);
+    if (sv_end_with(sv, ".c") || sv_end_with(sv, ".h")) {
+      const char *file_path = temp_sv_to_cstr(sv);
+      da_append(&files, file_path);
+    }
   }
+  children.count = 0;
 
-  bool result = true;
-  if (needs_rebuild(output_path, children.items, children.count)) {
+  if (!read_entire_dir("./tools", &children)) return_defer(false);
+  for (size_t i = 0; i < children.count; ++i) {
+    const char *file_name = children.items[i];
+    String_View sv = sv_from_cstr(file_name);
+    if (sv_end_with(sv, ".c") || sv_end_with(sv, ".h")) {
+      const char *file_path = temp_sprintf("tools/%s", file_name);
+      da_append(&files, file_path);
+    }
+  }
+  children.count = 0;
+
+  if (needs_rebuild(output_path, files.items, files.count)) {
     cmd_append(cmd, "etags", "-o", output_path);
 
-    for (size_t i = 0; i < children.count; ++i) {
-      cmd_append(cmd, children.items[i]);
+    for (size_t i = 0; i < files.count; ++i) {
+      cmd_append(cmd, files.items[i]);
     }
 
     result = cmd_run(cmd);
   }
+
+defer:
+  temp_rewind(save_point);
+
   if (result) nob_log(INFO, "Tags are up to date");
   else        nob_log(ERROR, "Tags failed to be updated");
 
   if (children.items) free(children.items);
+  if (files.items) free(files.items);
   return result;
 }
 
