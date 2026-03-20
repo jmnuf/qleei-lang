@@ -77,6 +77,52 @@ static int group_cmp(const void *a, const void *b) {
     return strcmp(ga->key, gb->key);
 }
 
+static bool is_function(const char *signature) {
+    return strncmp(signature, "static", 6) != 0 &&
+           strncmp(signature, "typedef", 7) != 0;
+}
+
+static bool is_type(const char *signature) {
+    return strncmp(signature, "typedef", 7) == 0;
+}
+
+static Group_List group_build(Api_List *api, bool (*filter)(const char*)) {
+    Group_List result = {0};
+    char key_buf[64];
+    
+    for (size_t i = 0; i < api->count; i++) {
+        if (!filter(api->items[i].signature)) continue;
+        
+        const char *key = group_key(api->items[i].name, key_buf, sizeof(key_buf));
+        
+        size_t g = 0;
+        for (; g < result.count; g++) {
+            if ((key == NULL && result.items[g].key == NULL) ||
+                (key != NULL && result.items[g].key != NULL && strcmp(key, result.items[g].key) == 0)) {
+                break;
+            }
+        }
+        
+        if (g >= result.count) {
+            Group new_group = {0};
+            if (key) new_group.key = strdup(key);
+            da_append(&result, new_group);
+        }
+        
+        da_append(&result.items[g], api->items[i]);
+    }
+    
+    for (size_t i = 0; i < result.count; i++) {
+        if (result.items[i].count <= 1) {
+            free(result.items[i].key);
+            result.items[i].key = NULL;
+        }
+    }
+    qsort(result.items, result.count, sizeof(Group), group_cmp);
+    
+    return result;
+}
+
 static char *parse_symbol_line(const char *content, size_t len, size_t start) {
     size_t line_start = start;
     size_t typedef_start = 0;
@@ -568,17 +614,6 @@ static void html_item(String_Builder *sb, Api_Item *item, Type_List *types) {
     sb_appendf(sb, "</div>\n\n");
 }
 
-static void md_header(String_Builder *sb) {
-    sb_append_cstr(sb, "# QLeii API Reference\n\n");
-    sb_append_cstr(sb, "QLeei is a simple interpreted stack-based language.\n\n");
-}
-
-static void md_item(String_Builder *sb, Api_Item *item) {
-    sb_appendf(sb, "## %s\n\n", item->name);
-    sb_appendf(sb, "%s\n\n", item->description);
-    sb_appendf(sb, "```c\n%s\n```\n\n", item->signature);
-}
-
 static void html_sidebar_group(String_Builder *sb, Group *group) {
     if (group->key) {
         sb_appendf(sb, "<details>\n");
@@ -607,62 +642,7 @@ static void html_content_group(String_Builder *sb, Group *group, Type_List *type
     }
 }
 
-static void md_group(String_Builder *sb, Group *group) {
-    if (group->key) {
-        sb_appendf(sb, "### %s\n\n", group->key);
-    }
-    for (size_t j = 0; j < group->count; j++) {
-        md_item(sb, &group->items[j]);
-    }
-}
-
-static bool is_function(const char *signature) {
-    return strncmp(signature, "static", 6) != 0 &&
-           strncmp(signature, "typedef", 7) != 0;
-}
-
-static bool is_type(const char *signature) {
-    return strncmp(signature, "typedef", 7) == 0;
-}
-
-static Group_List group_build(Api_List *api, bool (*filter)(const char*)) {
-    Group_List result = {0};
-    char key_buf[64];
-    
-    for (size_t i = 0; i < api->count; i++) {
-        if (!filter(api->items[i].signature)) continue;
-        
-        const char *key = group_key(api->items[i].name, key_buf, sizeof(key_buf));
-        
-        size_t g = 0;
-        for (; g < result.count; g++) {
-            if ((key == NULL && result.items[g].key == NULL) ||
-                (key != NULL && result.items[g].key != NULL && strcmp(key, result.items[g].key) == 0)) {
-                break;
-            }
-        }
-        
-        if (g >= result.count) {
-            Group new_group = {0};
-            if (key) new_group.key = strdup(key);
-            da_append(&result, new_group);
-        }
-        
-        da_append(&result.items[g], api->items[i]);
-    }
-    
-    for (size_t i = 0; i < result.count; i++) {
-        if (result.items[i].count <= 1) {
-            free(result.items[i].key);
-            result.items[i].key = NULL;
-        }
-    }
-    qsort(result.items, result.count, sizeof(Group), group_cmp);
-    
-    return result;
-}
-
-static void write_html(const char *output_path, Group_List *funcs, Group_List *types, Type_List *type_registry) {
+static void html_write(const char *output_path, Group_List *funcs, Group_List *types, Type_List *type_registry) {
     String_Builder html = {0};
     da_reserve(&html, 64 * 1024);
     
@@ -698,7 +678,27 @@ static void write_html(const char *output_path, Group_List *funcs, Group_List *t
     sb_free(html);
 }
 
-static void write_markdown(const char *output_path, Group_List *funcs, Group_List *types) {
+static void md_header(String_Builder *sb) {
+    sb_append_cstr(sb, "# QLeii API Reference\n\n");
+    sb_append_cstr(sb, "QLeei is a simple interpreted stack-based language.\n\n");
+}
+
+static void md_item(String_Builder *sb, Api_Item *item) {
+    sb_appendf(sb, "## %s\n\n", item->name);
+    sb_appendf(sb, "%s\n\n", item->description);
+    sb_appendf(sb, "```c\n%s\n```\n\n", item->signature);
+}
+
+static void md_group(String_Builder *sb, Group *group) {
+    if (group->key) {
+        sb_appendf(sb, "### %s\n\n", group->key);
+    }
+    for (size_t j = 0; j < group->count; j++) {
+        md_item(sb, &group->items[j]);
+    }
+}
+
+static void md_write(const char *output_path, Group_List *funcs, Group_List *types) {
     String_Builder md = {0};
     da_reserve(&md, 32 * 1024);
     
@@ -756,8 +756,8 @@ int main(void) {
     Group_List funcs = group_build(&api, is_function);
     Group_List type_groups = group_build(&api, is_type);
     
-    write_html("docs/index.html", &funcs, &type_groups, &types);
-    write_markdown("docs/llm.md", &funcs, &type_groups);
+    html_write("docs/index.html", &funcs, &type_groups, &types);
+    md_write("docs/llm.md", &funcs, &type_groups);
     
     cleanup(&api, &funcs, &type_groups);
     free(types.items);
