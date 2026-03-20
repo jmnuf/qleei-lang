@@ -7,9 +7,6 @@ static const char *printing_intrinsics[] = {"print_number", "print_ptr", "print_
 static const char *stack_intrinsics[] = {"dup", "drop", "rot2", "swap2", "rot3", "swap3", "over"};
 static const char *memory_intrinsics[] = {"mem_alloc", "mem_free", "mem_load_ui8", "mem_save_ui8", "mem_load_ui32", "mem_save_ui32"};
 
-static const char *loop_example = "while <condition> begin\n    <body>\nend";
-static const char *proc_example = "proc <name-of-proc> [<..inputs>] -> [<..outputs>] <body> end";
-
 static bool is_qleei_keyword(const char *word, size_t len) {
     static const char *keywords[] = { "while", "begin", "end", "proc" };
     for (size_t i = 0; i < sizeof(keywords)/sizeof(keywords[0]); i++) {
@@ -451,10 +448,9 @@ static void doc_gen_lang_ref_html(const char *output_path) {
 
     html_section_close(&html);
 
-    html_section_open(&html, "loops", "Loops", "Control flow with while loops");
+    html_section_open(&html, "control-flow", "Control Flow", "Who needs more than while loops anyways?");
     sb_appendf(&html, "<div class=\"item\" id=\"while\">\n");
     sb_appendf(&html, "<h2>while</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>while &lt;condition&gt; begin &lt;body&gt; end</code></pre>\n");
     String_Pool_Index loop_desc_idx = extract_description(loops_start + 9, procs_start);
     if (loop_desc_idx.pool && strlen(Pooled_String(loop_desc_idx)) > 0) {
         sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(loop_desc_idx));
@@ -477,7 +473,6 @@ static void doc_gen_lang_ref_html(const char *output_path) {
     html_section_open(&html, "procedures", "User Procedures", "Defining your own procedures");
     sb_appendf(&html, "<div class=\"item\" id=\"proc\">\n");
     sb_appendf(&html, "<h2>proc</h2>\n");
-    sb_appendf(&html, "<pre class=\"signature\"><code>proc &lt;name&gt; [&lt;inputs&gt;] -&gt; [&lt;outputs&gt;] &lt;body&gt; end</code></pre>\n");
     String_Pool_Index proc_desc_idx = extract_description(procs_start + 19, data + len);
     if (proc_desc_idx.pool && strlen(Pooled_String(proc_desc_idx)) > 0) {
         sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(proc_desc_idx));
