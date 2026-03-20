@@ -94,7 +94,7 @@ typedef struct {
 for (ssize_t ___save_space = (ssize_t)nob_temp_save(); ___save_space != -1; (nob_temp_rewind((size_t)___save_space), ___save_space = -1))
 
 void usage(const char *program) {
-  printf("Usage: %s [run|build]\n", program);
+  printf("Usage: %s [run|build|docs]\n", program);
   printf("    run [(input).ql]      ---        Execute interpreter after compiling with an input file\n");
   printf("    build                 ---        Force building of program\n");
   printf("    -etags                ---        Run etags on the C codebase\n");
@@ -214,6 +214,22 @@ defer:
 }
 
 
+bool build_docs(Cmd *cmd, Unit *unit) {
+  const char *doc_gen_output = BUILD_FOLDER"/doc_gen";
+  within_temp {
+    unit_target_desktop(unit);
+    unit_output(unit, doc_gen_output);
+    unit_input(unit, "./tools/doc_gen.c");
+    unit_input(unit, "./nob.h");
+    if (!build_unit(cmd, unit)) return false;
+  }
+  
+  cmd_append(cmd, doc_gen_output);
+  if (!cmd_run(cmd)) return false;
+  return true;
+}
+
+
 /**
  * Program entry point that builds desktop and WebAssembly targets, updates TAGS when requested, and optionally runs the built native executable against a single input or all examples.
  *
@@ -228,9 +244,9 @@ int main(int argc, char **argv) {
   Cmd cmd = {0};
 
   bool run_requested = false;
-  bool build_demanded = false;
-  bool uses_etags = false;
   bool docs_requested = false;
+  bool build_demanded = false;
+  bool etags_requested = false;
   bool run_all = false;
   const char *run_input_file = NULL;
 
@@ -256,7 +272,7 @@ int main(int argc, char **argv) {
     }
 
     if (streq(arg, "-etags")) {
-      uses_etags = true;
+      etags_requested = true;
       continue;
     }
 
@@ -273,9 +289,15 @@ int main(int argc, char **argv) {
   Unit unit = {0};
   if (!mkdir_if_not_exists(BUILD_FOLDER)) return 1;
 
+  if (etags_requested) build_etags(&cmd);
+
+  if (docs_requested) {
+    if (!build_docs(&cmd, &unit)) return 1;
+    return 0;
+  }
+
   const char *native_output = BUILD_FOLDER"/qleei";
 
-  if (uses_etags) build_etags(&cmd);
 
   within_temp {
     unit_target_desktop(&unit);
@@ -355,20 +377,6 @@ int main(int argc, char **argv) {
       if (run_input_file) cmd_append(&cmd, run_input_file);
       if (!cmd_run(&cmd)) return 1;
     }
-  }
-
-  if (docs_requested) {
-    const char *doc_gen_output = BUILD_FOLDER"/doc_gen";
-    within_temp {
-      unit_target_desktop(&unit);
-      unit_output(&unit, doc_gen_output);
-      unit_input(&unit, "./tools/doc_gen.c");
-      unit_input(&unit, "./nob.h");
-      if (!build_unit(&cmd, &unit)) return 1;
-    }
-    
-    cmd_append(&cmd, doc_gen_output);
-    if (!cmd_run(&cmd)) return 1;
   }
 
   return 0;
