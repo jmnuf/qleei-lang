@@ -301,6 +301,7 @@ int main(int argc, char **argv) {
     unit_wasm_export(&unit, "qleei_alloc_new_interpreter");
     unit_wasm_export(&unit, "qleei_interpreter_step");
     unit_wasm_export(&unit, "qleei_interpreter_lexer_init");
+    unit_wasm_export(&unit, "qleei_interpreter_free");
     if (build_demanded) unit_force_build(&unit);
     if (!build_unit(&cmd, &unit)) return 1;
 
