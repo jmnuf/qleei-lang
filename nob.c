@@ -118,7 +118,7 @@ bool build_unit(Cmd *cmd, Unit *u) {
   if (u->flags & UNIT_FLAG_FORCE_BUILD || needs_rebuild(u->output_path, u->items, u->count)) {
     cmd_append(cmd, "clang");
     if (u->target == UNIT_TARGET_BROWSER) {
-      cmd_append(cmd, "--target=wasm32", "-nostdlib", "-Wl,--allow-undefined", "-Wl,--no-entry");
+      cmd_append(cmd, "--target=wasm32-unknown-none", "-nostdlib", "-fno-builtin", "-Wl,--allow-undefined", "-Wl,--no-entry", "-Wl,--strip-all");
       cmd_append(cmd, "-Wl,--export=__heap_base", "-Wl,--export=__heap_end", "-Wl,--export=__indirect_function_table");
       for (size_t i = 0; i < u->wasm_exports.count; ++i) {
 	      cmd_append(cmd, u->wasm_exports.items[i]);
