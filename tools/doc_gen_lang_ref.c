@@ -165,28 +165,72 @@ static String_Pool_Index extract_string(const char *start, size_t len) {
     return pool_strdup(trimmed);
 }
 
-static String_Pool_Index extract_description(const char *start, const char *end) {
-    trim_string(&start, end);
-    if (start >= end) return pool_strdup("");
-    
+static String_Pool_Index extract_paragraph_html(Nob_String_View sv) {
     String_Builder sb = {0};
-    const char *p = start;
+    bool seen_content = false;
     
-    while (p < end && *p != '`') {
-        if (*p == '\n') {
-            if (sb.count > 0 && sb.items[sb.count-1] == ' ') sb.count--;
+    while (sv.count > 0) {
+        Nob_String_View line = sv_chop_by_delim(&sv, '\n');
+        
+        Nob_String_View trimmed = sv_trim(line);
+        if (trimmed.count == 0) {
+            if (seen_content) {
+                sb_append_cstr(&sb, "<br>");
+            }
+            continue;
+        }
+        
+        if (trimmed.count >= 3 && strncmp(trimmed.data, "```", 3) == 0) {
             break;
         }
-        if (*p != ' ' && *p != '\t') {
-            da_append(&sb, *p);
-        } else if (sb.count > 0 && isalpha(sb.items[sb.count-1])) {
-            da_append(&sb, *p);
+        
+        if (seen_content) {
+            da_append(&sb, ' ');
         }
-        p++;
+        
+        for (size_t i = 0; i < trimmed.count; i++) {
+            da_append(&sb, trimmed.data[i]);
+        }
+        seen_content = true;
     }
     
-    while (sb.count > 0 && (sb.items[sb.count-1] == ' ' || sb.items[sb.count-1] == '\t')) {
-        sb.count--;
+    da_append(&sb, '\0');
+    String_Pool_Index result = pool_strdup(sb.items);
+    sb_free(sb);
+    return result;
+}
+
+static String_Pool_Index extract_paragraph_md(Nob_String_View sv) {
+    String_Builder sb = {0};
+    bool seen_content = false;
+    bool pending_newline = false;
+    
+    while (sv.count > 0) {
+        Nob_String_View line = sv_chop_by_delim(&sv, '\n');
+        
+        Nob_String_View trimmed = sv_trim(line);
+        if (trimmed.count == 0) {
+            if (seen_content) {
+                pending_newline = true;
+            }
+            continue;
+        }
+        
+        if (trimmed.count >= 3 && strncmp(trimmed.data, "```", 3) == 0) {
+            break;
+        }
+        
+        if (pending_newline) {
+            da_append(&sb, '\n');
+            pending_newline = false;
+        } else if (seen_content) {
+            da_append(&sb, ' ');
+        }
+        
+        for (size_t i = 0; i < trimmed.count; i++) {
+            da_append(&sb, trimmed.data[i]);
+        }
+        seen_content = true;
     }
     
     da_append(&sb, '\0');
@@ -451,7 +495,8 @@ static void doc_gen_lang_ref_html(const char *output_path) {
     html_section_open(&html, "control-flow", "Control Flow", "Who needs more than while loops anyways?");
     sb_appendf(&html, "<div class=\"item\" id=\"while\">\n");
     sb_appendf(&html, "<h2>while</h2>\n");
-    String_Pool_Index loop_desc_idx = extract_description(loops_start + 9, procs_start);
+    Nob_String_View loop_sv = sv_from_parts(loops_start + 9, procs_start - loops_start - 9);
+    String_Pool_Index loop_desc_idx = extract_paragraph_html(loop_sv);
     if (loop_desc_idx.pool && strlen(Pooled_String(loop_desc_idx)) > 0) {
         sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(loop_desc_idx));
     }
@@ -473,7 +518,8 @@ static void doc_gen_lang_ref_html(const char *output_path) {
     html_section_open(&html, "procedures", "User Procedures", "Defining your own procedures");
     sb_appendf(&html, "<div class=\"item\" id=\"proc\">\n");
     sb_appendf(&html, "<h2>proc</h2>\n");
-    String_Pool_Index proc_desc_idx = extract_description(procs_start + 19, data + len);
+    Nob_String_View proc_sv = sv_from_parts(procs_start + 19, len - (procs_start - data) - 19);
+    String_Pool_Index proc_desc_idx = extract_paragraph_html(proc_sv);
     if (proc_desc_idx.pool && strlen(Pooled_String(proc_desc_idx)) > 0) {
         sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(proc_desc_idx));
     }
@@ -581,13 +627,14 @@ static void doc_gen_lang_ref_md(const char *output_path) {
 
     sb_append_cstr(&md, "## Loops\n\n");
     sb_appendf(&md, "### while\n\n");
+    Nob_String_View loop_sv_md = sv_from_parts(loops_start + 9, procs_start - loops_start - 9);
+    String_Pool_Index loop_desc_idx = extract_paragraph_md(loop_sv_md);
+    if (loop_desc_idx.pool && strlen(Pooled_String(loop_desc_idx)) > 0) {
+        sb_appendf(&md, "%s\n\n", Pooled_String(loop_desc_idx));
+    }
     const char *loop_sig_md = extract_code_block(loops_start, procs_start, 0);
     if (loop_sig_md) {
         sb_appendf(&md, "```qleei\n%s\n```\n\n", loop_sig_md);
-    }
-    String_Pool_Index loop_desc_idx = extract_description(loops_start + 9, procs_start);
-    if (loop_desc_idx.pool && strlen(Pooled_String(loop_desc_idx)) > 0) {
-        sb_appendf(&md, "%s\n\n", Pooled_String(loop_desc_idx));
     }
     const char *loop_example_md = extract_code_block(loops_start, procs_start, 1);
     if (loop_example_md) {
@@ -596,13 +643,14 @@ static void doc_gen_lang_ref_md(const char *output_path) {
 
     sb_append_cstr(&md, "## User Procedures\n\n");
     sb_appendf(&md, "### proc\n\n");
+    Nob_String_View proc_sv_md = sv_from_parts(procs_start + 19, len - (procs_start - data) - 19);
+    String_Pool_Index proc_desc_idx = extract_paragraph_md(proc_sv_md);
+    if (proc_desc_idx.pool && strlen(Pooled_String(proc_desc_idx)) > 0) {
+        sb_appendf(&md, "%s\n\n", Pooled_String(proc_desc_idx));
+    }
     const char *proc_sig_md = extract_code_block(procs_start, data + len, 0);
     if (proc_sig_md) {
         sb_appendf(&md, "```qleei\n%s\n```\n\n", proc_sig_md);
-    }
-    String_Pool_Index proc_desc_idx = extract_description(procs_start + 19, data + len);
-    if (proc_desc_idx.pool && strlen(Pooled_String(proc_desc_idx)) > 0) {
-        sb_appendf(&md, "%s\n\n", Pooled_String(proc_desc_idx));
     }
     const char *proc_example_md = extract_code_block(procs_start, data + len, 1);
     if (proc_example_md) {
