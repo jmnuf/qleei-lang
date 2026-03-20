@@ -78,11 +78,9 @@ static void doc_gen_lang_ref_html(const char *output_path) {
     html_doc_open(&html);
 
     sb_append_cstr(&html, "<h2>Types</h2>\n");
-    sb_append_cstr(&html, "<details>\n<summary>Types (3)</summary>\n<div class=\"group-items\">\n");
     sb_append_cstr(&html, "<a href=\"#number\">number</a>\n");
     sb_append_cstr(&html, "<a href=\"#bool\">bool</a>\n");
     sb_append_cstr(&html, "<a href=\"#pointer\">pointer</a>\n");
-    sb_append_cstr(&html, "</div>\n</details>\n");
 
     sb_append_cstr(&html, "<h2>Intrinsics</h2>\n");
     sb_append_cstr(&html, "<details>\n<summary>Printing (5)</summary>\n<div class=\"group-items\">\n");
