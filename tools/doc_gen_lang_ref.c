@@ -282,12 +282,16 @@ static String_Pool_Index extract_intrinsic_description(const char *section_start
     return pool_strdup("");
 }
 
-static const char *extract_code_block(const char *section_start, const char *section_end) {
+static const char *extract_code_block(const char *section_start, const char *section_end, int index) {
+    int count = 0;
     const char *fence = NULL;
     for (const char *p = section_start; p < section_end - 7; p++) {
         if (strncmp(p, "```qleei", 7) == 0) {
-            fence = p;
-            break;
+            if (count == index) {
+                fence = p;
+                break;
+            }
+            count++;
         }
     }
     if (!fence) return NULL;
@@ -455,10 +459,16 @@ static void doc_gen_lang_ref_html(const char *output_path) {
     if (loop_desc_idx.pool && strlen(Pooled_String(loop_desc_idx)) > 0) {
         sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(loop_desc_idx));
     }
-    const char *loop_code = extract_code_block(loops_start, procs_start);
-    if (loop_code) {
+    const char *loop_sig = extract_code_block(loops_start, procs_start, 0);
+    if (loop_sig) {
         sb_appendf(&html, "<pre class=\"signature\"><code>");
-        html_qleei_highlight(&html, loop_code, strlen(loop_code));
+        html_qleei_highlight(&html, loop_sig, strlen(loop_sig));
+        sb_appendf(&html, "</code></pre>\n");
+    }
+    const char *loop_example = extract_code_block(loops_start, procs_start, 1);
+    if (loop_example) {
+        sb_appendf(&html, "<pre class=\"example\"><code>");
+        html_qleei_highlight(&html, loop_example, strlen(loop_example));
         sb_appendf(&html, "</code></pre>\n");
     }
     sb_appendf(&html, "</div>\n\n");
@@ -472,10 +482,16 @@ static void doc_gen_lang_ref_html(const char *output_path) {
     if (proc_desc_idx.pool && strlen(Pooled_String(proc_desc_idx)) > 0) {
         sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(proc_desc_idx));
     }
-    const char *proc_code = extract_code_block(procs_start, data + len);
-    if (proc_code) {
+    const char *proc_sig = extract_code_block(procs_start, data + len, 0);
+    if (proc_sig) {
         sb_appendf(&html, "<pre class=\"signature\"><code>");
-        html_qleei_highlight(&html, proc_code, strlen(proc_code));
+        html_qleei_highlight(&html, proc_sig, strlen(proc_sig));
+        sb_appendf(&html, "</code></pre>\n");
+    }
+    const char *proc_example = extract_code_block(procs_start, data + len, 1);
+    if (proc_example) {
+        sb_appendf(&html, "<pre class=\"example\"><code>");
+        html_qleei_highlight(&html, proc_example, strlen(proc_example));
         sb_appendf(&html, "</code></pre>\n");
     }
     sb_appendf(&html, "</div>\n\n");
@@ -570,18 +586,32 @@ static void doc_gen_lang_ref_md(const char *output_path) {
 
     sb_append_cstr(&md, "## Loops\n\n");
     sb_appendf(&md, "### while\n\n");
-    sb_append_cstr(&md, "```\nwhile <condition> begin <body> end\n```\n\n");
+    const char *loop_sig_md = extract_code_block(loops_start, procs_start, 0);
+    if (loop_sig_md) {
+        sb_appendf(&md, "```qleei\n%s\n```\n\n", loop_sig_md);
+    }
     String_Pool_Index loop_desc_idx = extract_description(loops_start + 9, procs_start);
     if (loop_desc_idx.pool && strlen(Pooled_String(loop_desc_idx)) > 0) {
         sb_appendf(&md, "%s\n\n", Pooled_String(loop_desc_idx));
     }
+    const char *loop_example_md = extract_code_block(loops_start, procs_start, 1);
+    if (loop_example_md) {
+        sb_appendf(&md, "```qleei\n%s\n```\n\n", loop_example_md);
+    }
 
     sb_append_cstr(&md, "## User Procedures\n\n");
     sb_appendf(&md, "### proc\n\n");
-    sb_append_cstr(&md, "```\nproc <name> [<inputs>] -> [<outputs>] <body> end\n```\n\n");
+    const char *proc_sig_md = extract_code_block(procs_start, data + len, 0);
+    if (proc_sig_md) {
+        sb_appendf(&md, "```qleei\n%s\n```\n\n", proc_sig_md);
+    }
     String_Pool_Index proc_desc_idx = extract_description(procs_start + 19, data + len);
     if (proc_desc_idx.pool && strlen(Pooled_String(proc_desc_idx)) > 0) {
         sb_appendf(&md, "%s\n\n", Pooled_String(proc_desc_idx));
+    }
+    const char *proc_example_md = extract_code_block(procs_start, data + len, 1);
+    if (proc_example_md) {
+        sb_appendf(&md, "```qleei\n%s\n```\n\n", proc_example_md);
     }
 
     sb_append_null(&md);

@@ -101,6 +101,7 @@ static void html_doc_open(String_Builder *sb) {
         ".item { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 2px 4px rgba(74,18,89,0.1); border: 1px solid #ffb6c1; overflow-x: hidden; }\n"
         ".item h2 { color: #4a1259; font-size: 1.3rem; margin-bottom: 8px; font-family: 'Courier New', monospace; }\n"
         ".item .signature { background: #0d0d14; padding: 12px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #e0e0e0; overflow-x: auto; margin-bottom: 12px; border: 1px solid #4a1259; white-space: pre; }\n"
+        ".item .example { background: #0d0d14; padding: 12px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #e0e0e0; overflow-x: auto; margin-bottom: 12px; border: 1px solid #6272a4; white-space: pre; }\n"
         ".item .description { color: #444; word-wrap: break-word; overflow-wrap: break-word; }\n"
         ".item .description p { margin-bottom: 8px; word-wrap: break-word; overflow-wrap: break-word; }\n"
         ".item .description code { background: #1a1a2e; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #f8f0f5; word-wrap: break-word; }\n"
