@@ -27,10 +27,7 @@ jobs:
       - name: Bootstrap nob
         run: clang -o nob nob.c
 
-      - name: Build Doc Generator
-        run: ./nob doc_gen
-
-      - name: Generate Docs
+      - name: Build & Run Docs Generator
         run: ./nob docs
 
       - name: Verify docs
