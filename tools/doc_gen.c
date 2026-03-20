@@ -192,9 +192,7 @@ static String_Pool_Index parse_symbol_line(const char *content, size_t len, size
                 if (brace_count == 0 && typedef_start > 0) {
                     size_t total_len = i - typedef_start;
                     char *result = temp_sprintf("%.*s", (int)total_len, content + typedef_start);
-                    size_t result_len = strlen(result);
                     String_Pool_Index pooled = pool_strdup(result);
-                    (void)result_len;
                     return pooled;
                 }
             } else {
