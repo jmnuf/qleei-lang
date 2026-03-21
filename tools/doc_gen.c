@@ -9,9 +9,11 @@ int main(void) {
 
     doc_gen_c_ref("docs/c_ref");
     printf("Generated docs/c_ref/index.html and docs/c_ref/llm.md\n");
+    string_pool.count = 0;
 
     doc_gen_lang_ref("docs/lang_ref");
     printf("Generated docs/lang_ref/index.html and docs/lang_ref/llm.md\n");
+    string_pool.count = 0;
 
     String_Builder html = {0};
     da_reserve(&html, 4 * 1024);
@@ -33,6 +35,7 @@ int main(void) {
     printf("Generated docs/index.html\n");
 
     sb_free(html);
+    sb_free(string_pool);
 
     return 0;
 }

@@ -436,5 +436,4 @@ void doc_gen_c_ref(const char *output_dir) {
 
     free(api.items);
     free(types.items);
-    sb_free(string_pool);
 }
