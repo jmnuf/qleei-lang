@@ -7,6 +7,8 @@
 int main(void) {
     if (!mkdir_if_not_exists("docs")) return 1;
 
+    da_reserve(&string_pool, 64 * 1024);
+
     doc_gen_c_ref("docs/c_ref");
     printf("Generated docs/c_ref/index.html and docs/c_ref/llm.md\n");
     string_pool.count = 0;

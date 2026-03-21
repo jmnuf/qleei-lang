@@ -403,7 +403,6 @@ void doc_gen_c_ref(const char *output_dir) {
 
     Api_List api = {0};
     unknown_name = pool_strdup("unknown");
-    da_reserve(&string_pool, 64 * 1024);
     parse_header("qleei.h", &api);
 
     Type_List types = {0};
