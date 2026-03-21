@@ -56,6 +56,7 @@ static void html_escape(String_Builder *sb, const char *text, size_t len) {
             case '<': sb_append_cstr(sb, "&lt;"); break;
             case '>': sb_append_cstr(sb, "&gt;"); break;
             case '"': sb_append_cstr(sb, "&quot;"); break;
+            case '\'': sb_append_cstr(sb, "&#39;"); break;
             default: da_append(sb, text[i]);
         }
     }
