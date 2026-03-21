@@ -286,41 +286,30 @@ static String_Pool_Index extract_intrinsic_description(const char *section_start
 
 static const char *extract_code_block(const char *section_start, const char *section_end, int index) {
     int count = 0;
-    const char *fence = NULL;
-    for (const char *p = section_start; p < section_end - 7; p++) {
-        if (strncmp(p, "```qleei", 7) == 0) {
-            if (count == index) {
-                fence = p;
-                break;
-            }
-            count++;
-        }
+    String_View sv = sv_from_parts(section_start, (size_t)(section_end - section_start));
+    String_View code_block_prefix = sv_from_cstr("```qleei");
+    while (sv.count > 0) {
+      if (sv_starts_with(sv, code_block_prefix)) {
+        sv_chop_left(&sv, code_block_prefix.count);
+        if (count == index) break;
+        count++;
+        continue;
+      }
+      sv_chop_left(&sv, 1);
     }
-    if (!fence) return NULL;
+    if (sv.count == 0) return NULL;
+    sv = sv_trim_left(sv);
 
-    const char *code_start = fence + 7;
-    while (code_start < section_end && *code_start != '\n') code_start++;
-    if (code_start < section_end) code_start++;
-
-    const char *fence_end = NULL;
-    for (const char *p = code_start; p < section_end - 3; p++) {
-        if (strncmp(p, "```", 3) == 0) {
-            fence_end = p;
-            break;
-        }
+    String_View it = sv;
+    while (it.count > 0 && !sv_starts_with(it, sv_from_cstr("```"))) {
+      it.data  += 1;
+      it.count -= 1;
     }
-    if (!fence_end) fence_end = section_end;
+    if (it.count > 0) sv.count = (size_t)(it.data - sv.data);
 
-    while (fence_end > code_start && (fence_end[-1] == '\n' || fence_end[-1] == ' ' || fence_end[-1] == '\t')) {
-        fence_end--;
-    }
+    sv = sv_trim_right(sv);
 
-    size_t code_len = fence_end - code_start;
-    char *code = temp_alloc(code_len + 1);
-    memcpy(code, code_start, code_len);
-    code[code_len] = '\0';
-
-    return code;
+    return temp_sv_to_cstr(sv);
 }
 
 static void doc_gen_lang_ref_html(const char *output_path) {
