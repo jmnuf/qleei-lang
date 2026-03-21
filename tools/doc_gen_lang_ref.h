@@ -3,12 +3,15 @@
 static const char *types[] = {"number", "bool", "pointer"};
 static const size_t types_count = sizeof(types) / sizeof(types[0]);
 
-static const char *printing_intrinsics[] = {"print_number", "print_ptr", "print_char", "print_zstr", "print_stack"};
+static const char *printing_intrinsics[] = {
+  "print_number", "print_ptr", "print_bool",
+  "print_char", "print_zstr", "print_stack",
+};
 static const char *stack_intrinsics[] = {"dup", "drop", "rot2", "swap2", "rot3", "swap3", "over"};
 static const char *memory_intrinsics[] = {"mem_alloc", "mem_free", "mem_load_ui8", "mem_save_ui8", "mem_load_ui32", "mem_save_ui32"};
 
 static bool is_qleei_keyword(const char *word, size_t len) {
-    static const char *keywords[] = { "while", "begin", "end", "proc" };
+    static const char *keywords[] = { "if", "while", "begin", "end", "proc" };
     for (size_t i = 0; i < sizeof(keywords)/sizeof(keywords[0]); i++) {
         if (strncmp(word, keywords[i], len) == 0 && keywords[i][len] == '\0') return true;
     }

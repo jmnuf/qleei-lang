@@ -29,6 +29,8 @@ Printing:
   - Consumes a number and prints it to stdout with a newline
 - print_ptr    :: [pointer]  -> []
   - Consumes a pointer and prints it to stdout with a newline
+- print_bool :: [bool]  -> []
+  - Consumes a boolean and prints it to stdout with a newline
 - print_char   :: [number]  -> []
   - Consumes a number, casts it to an C char (8 bit integer) and prints it to stdout with a newline
 - print_zstr   :: [pointer] -> []
