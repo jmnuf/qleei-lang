@@ -344,71 +344,64 @@ static bool parse_header(const char *path, Api_List *api) {
     return result;
 }
 
-static bool doc_gen_c_ref_html(const char *output_path, Group_List *funcs, Group_List *types) {
-bool result = true;
-
-    String_Builder html = {0};
-    da_reserve(&html, 64 * 1024);
-
-    html_doc_open(&html);
-
-    sb_append_cstr(&html, "<h2>Functions</h2>\n");
-    for (size_t i = 0; i < funcs->count; i++) {
-        html_sidebar_group(&html, &funcs->items[i]);
-    }
-
-    sb_append_cstr(&html, "<h2>Types</h2>\n");
-    for (size_t i = 0; i < types->count; i++) {
-        html_sidebar_group(&html, &types->items[i]);
-    }
-
-    html_main_open(&html);
-
-    html_section_open(&html, "functions", "Functions", "Can you feel? Can you hear me?");
-    for (size_t i = 0; i < funcs->count; i++) {
-        html_content_group(&html, &funcs->items[i]);
-    }
-    html_section_close(&html);
-
-    html_section_open(&html, "types", "Types", "What does this mean?! What does this mean?! WHAT DOES THIS MEAN?!");
-    for (size_t i = 0; i < types->count; i++) {
-        html_content_group(&html, &types->items[i]);
-    }
-    html_section_close(&html);
-
-    sb_append_cstr(&html, "</main>\n</div>\n</body>\n</html>\n");
-
-    result = write_entire_file(output_path, html.items, html.count);
-    sb_free(html);
-
-    return result;
-}
-
-static bool doc_gen_c_ref_md(const char *output_path, Group_List *funcs, Group_List *types) {
+static bool doc_gen_c_ref_html(String_Builder *html,const char *output_path, Group_List *funcs, Group_List *types) {
   bool result = true;
+  html->count = 0;
 
-    String_Builder md = {0};
-    da_reserve(&md, 32 * 1024);
+    html_doc_open(html);
 
-    md_header(&md);
-
-    sb_append_cstr(&md, "## Functions\n\n");
+    sb_append_cstr(html, "<h2>Functions</h2>\n");
     for (size_t i = 0; i < funcs->count; i++) {
-        md_group(&md, &funcs->items[i]);
+        html_sidebar_group(html, &funcs->items[i]);
     }
 
-    sb_append_cstr(&md, "\n## Types\n\n");
+    sb_append_cstr(html, "<h2>Types</h2>\n");
     for (size_t i = 0; i < types->count; i++) {
-        md_group(&md, &types->items[i]);
+        html_sidebar_group(html, &types->items[i]);
     }
 
-    result = write_entire_file(output_path, md.items, md.count);
-    sb_free(md);
+    html_main_open(html);
+
+    html_section_open(html, "functions", "Functions", "Can you feel? Can you hear me?");
+    for (size_t i = 0; i < funcs->count; i++) {
+        html_content_group(html, &funcs->items[i]);
+    }
+    html_section_close(html);
+
+    html_section_open(html, "types", "Types", "What does this mean?! What does this mean?! WHAT DOES THIS MEAN?!");
+    for (size_t i = 0; i < types->count; i++) {
+        html_content_group(html, &types->items[i]);
+    }
+    html_section_close(html);
+
+    sb_append_cstr(html, "</main>\n</div>\n</body>\n</html>\n");
+
+  result = write_entire_file(output_path, html->items, html->count);
+  return result;
+}
+
+static bool doc_gen_c_ref_md(String_Builder *md, const char *output_path, Group_List *funcs, Group_List *types) {
+  bool result = true;
+  md->count = 0;
+
+    md_header(md);
+
+    sb_append_cstr(md, "## Functions\n\n");
+    for (size_t i = 0; i < funcs->count; i++) {
+        md_group(md, &funcs->items[i]);
+    }
+
+    sb_append_cstr(md, "\n## Types\n\n");
+    for (size_t i = 0; i < types->count; i++) {
+        md_group(md, &types->items[i]);
+    }
+
+    result = write_entire_file(output_path, md->items, md->count);
 
     return result;
 }
 
-bool doc_gen_c_ref(const char *output_dir) {
+bool doc_gen_c_ref(String_Builder *sb, const char *output_dir) {
   bool result = true;
 
   Api_List api = {0};
@@ -435,8 +428,8 @@ bool doc_gen_c_ref(const char *output_dir) {
     snprintf(html_path, sizeof(html_path), "%s/index.html", output_dir);
     snprintf(md_path, sizeof(md_path), "%s/llm.md", output_dir);
 
-    if (!doc_gen_c_ref_html(html_path, &funcs, &type_groups)) return_defer(false);
-    if (!doc_gen_c_ref_md(md_path, &funcs, &type_groups)) return_defer(false);
+    if (!doc_gen_c_ref_html(sb, html_path, &funcs, &type_groups)) return_defer(false);
+    if (!doc_gen_c_ref_md(sb, md_path, &funcs, &type_groups)) return_defer(false);
 
 defer:
   if (funcs.items) {

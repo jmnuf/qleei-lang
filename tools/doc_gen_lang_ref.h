@@ -312,8 +312,9 @@ static const char *extract_code_block(const char *section_start, const char *sec
     return temp_sv_to_cstr(sv);
 }
 
-static bool doc_gen_lang_ref_html(const char *output_path) {
+static bool doc_gen_lang_ref_html(String_Builder *html, const char *output_path) {
   bool result = true;
+  html->count = 0;
 
     String_Builder content = {0};
     if (!read_entire_file("README.md", &content)) {
@@ -332,177 +333,175 @@ static bool doc_gen_lang_ref_html(const char *output_path) {
     const char *stack_start = find_header(data, len, "General Stack Operations:");
     const char *memory_start = find_header(data, len, "Memory Management:");
 
-    String_Builder html = {0};
-    da_reserve(&html, 64 * 1024);
+    html_doc_open(html);
 
-    html_doc_open(&html);
-
-    sb_append_cstr(&html, "<h2>Types</h2>\n");
+    sb_append_cstr(html, "<h2>Types</h2>\n");
     for (size_t i = 0; i < types_count; i++) {
-        sb_appendf(&html, "<a href=\"#%s\">%s</a>\n", types[i], types[i]);
+        sb_appendf(html, "<a href=\"#%s\">%s</a>\n", types[i], types[i]);
     }
 
-    sb_append_cstr(&html, "<h2>Intrinsics</h2>\n");
-    sb_appendf(&html, "<details>\n<summary>Printing (%zu)</summary>\n<div class=\"group-items\">\n", sizeof(printing_intrinsics)/sizeof(printing_intrinsics[0]));
+    sb_append_cstr(html, "<h2>Intrinsics</h2>\n");
+    sb_appendf(html, "<details>\n<summary>Printing (%zu)</summary>\n<div class=\"group-items\">\n", sizeof(printing_intrinsics)/sizeof(printing_intrinsics[0]));
     for (size_t i = 0; i < sizeof(printing_intrinsics)/sizeof(printing_intrinsics[0]); i++) {
-        sb_appendf(&html, "<a href=\"#%s\">%s</a>\n", printing_intrinsics[i], printing_intrinsics[i]);
+        sb_appendf(html, "<a href=\"#%s\">%s</a>\n", printing_intrinsics[i], printing_intrinsics[i]);
     }
-    sb_append_cstr(&html, "</div>\n</details>\n");
+    sb_append_cstr(html, "</div>\n</details>\n");
 
-    sb_appendf(&html, "<details>\n<summary>Stack Operations (%zu)</summary>\n<div class=\"group-items\">\n", sizeof(stack_intrinsics)/sizeof(stack_intrinsics[0]));
+    sb_appendf(html, "<details>\n<summary>Stack Operations (%zu)</summary>\n<div class=\"group-items\">\n", sizeof(stack_intrinsics)/sizeof(stack_intrinsics[0]));
     for (size_t i = 0; i < sizeof(stack_intrinsics)/sizeof(stack_intrinsics[0]); i++) {
-        sb_appendf(&html, "<a href=\"#%s\">%s</a>\n", stack_intrinsics[i], stack_intrinsics[i]);
+        sb_appendf(html, "<a href=\"#%s\">%s</a>\n", stack_intrinsics[i], stack_intrinsics[i]);
     }
-    sb_append_cstr(&html, "</div>\n</details>\n");
+    sb_append_cstr(html, "</div>\n</details>\n");
 
-    sb_appendf(&html, "<details>\n<summary>Memory Management (%zu)</summary>\n<div class=\"group-items\">\n", sizeof(memory_intrinsics)/sizeof(memory_intrinsics[0]));
+    sb_appendf(html, "<details>\n<summary>Memory Management (%zu)</summary>\n<div class=\"group-items\">\n", sizeof(memory_intrinsics)/sizeof(memory_intrinsics[0]));
     for (size_t i = 0; i < sizeof(memory_intrinsics)/sizeof(memory_intrinsics[0]); i++) {
-        sb_appendf(&html, "<a href=\"#%s\">%s</a>\n", memory_intrinsics[i], memory_intrinsics[i]);
+        sb_appendf(html, "<a href=\"#%s\">%s</a>\n", memory_intrinsics[i], memory_intrinsics[i]);
     }
-    sb_append_cstr(&html, "</div>\n</details>\n");
+    sb_append_cstr(html, "</div>\n</details>\n");
 
-    sb_append_cstr(&html, "<h2>Loops</h2>\n");
-    sb_append_cstr(&html, "<a href=\"#while\">while</a>\n");
+    sb_append_cstr(html, "<h2>Loops</h2>\n");
+    sb_append_cstr(html, "<a href=\"#while\">while</a>\n");
 
-    sb_append_cstr(&html, "<h2>User Procedures</h2>\n");
-    sb_append_cstr(&html, "<a href=\"#proc\">proc</a>\n");
+    sb_append_cstr(html, "<h2>User Procedures</h2>\n");
+    sb_append_cstr(html, "<a href=\"#proc\">proc</a>\n");
 
-    html_main_open(&html);
+    html_main_open(html);
 
-    html_section_open(&html, "types", "Types", "The building blocks of data in QLeei");
+    html_section_open(html, "types", "Types", "The building blocks of data in QLeei");
     for (size_t i = 0; i < types_count; i++) {
         String_Pool_Index desc = extract_type_description(types_start, intrinsics_start, types[i]);
-        sb_appendf(&html, "<div class=\"item\" id=\"%s\">\n", types[i]);
-        sb_appendf(&html, "<h2>%s</h2>\n", types[i]);
-        sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(desc));
-        sb_appendf(&html, "</div>\n\n");
+        sb_appendf(html, "<div class=\"item\" id=\"%s\">\n", types[i]);
+        sb_appendf(html, "<h2>%s</h2>\n", types[i]);
+        sb_appendf(html, "<div class=\"description\">%s</div>\n", Pooled_String(desc));
+        sb_appendf(html, "</div>\n\n");
     }
-    html_section_close(&html);
+    html_section_close(html);
 
-    html_section_open(&html, "intrinsics", "Intrinsics", "Built-in procedures for stack operations, memory, and I/O");
+    html_section_open(html, "intrinsics", "Intrinsics", "Built-in procedures for stack operations, memory, and I/O");
 
     if (printing_start && printing_start < (stack_start ? stack_start : loops_start)) {
         const char *printing_end = stack_start ? stack_start : (loops_start ? loops_start : intrinsics_start + 100);
-        sb_append_cstr(&html, "<h3>Printing</h3>\n");
+        sb_append_cstr(html, "<h3>Printing</h3>\n");
         for (size_t i = 0; i < sizeof(printing_intrinsics)/sizeof(printing_intrinsics[0]); i++) {
             String_Pool_Index sig = extract_intrinsic_signature(printing_start, printing_end, printing_intrinsics[i]);
             String_Pool_Index desc = extract_intrinsic_description(printing_start, printing_end, printing_intrinsics[i]);
-            sb_appendf(&html, "<div class=\"item\" id=\"%s\">\n", printing_intrinsics[i]);
-            sb_appendf(&html, "<h2>%s</h2>\n", printing_intrinsics[i]);
+            sb_appendf(html, "<div class=\"item\" id=\"%s\">\n", printing_intrinsics[i]);
+            sb_appendf(html, "<h2>%s</h2>\n", printing_intrinsics[i]);
             if (sig.pool && strlen(Pooled_String(sig)) > 0) {
-                sb_appendf(&html, "<pre class=\"signature\"><code>");
-                html_escape(&html, Pooled_String(sig), sig.len);
-                sb_appendf(&html, "</code></pre>\n");
+                sb_appendf(html, "<pre class=\"signature\"><code>");
+                html_escape(html, Pooled_String(sig), sig.len);
+                sb_appendf(html, "</code></pre>\n");
             }
             if (desc.pool && strlen(Pooled_String(desc)) > 0) {
-                sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(desc));
+                sb_appendf(html, "<div class=\"description\">%s</div>\n", Pooled_String(desc));
             }
-            sb_appendf(&html, "</div>\n\n");
+            sb_appendf(html, "</div>\n\n");
         }
     }
 
     if (stack_start && stack_start < (memory_start ? memory_start : loops_start)) {
         const char *stack_end = memory_start ? memory_start : (loops_start ? loops_start : intrinsics_start + 100);
-        sb_append_cstr(&html, "<h3>Stack Operations</h3>\n");
+        sb_append_cstr(html, "<h3>Stack Operations</h3>\n");
         for (size_t i = 0; i < sizeof(stack_intrinsics)/sizeof(stack_intrinsics[0]); i++) {
             String_Pool_Index sig = extract_intrinsic_signature(stack_start, stack_end, stack_intrinsics[i]);
             String_Pool_Index desc = extract_intrinsic_description(stack_start, stack_end, stack_intrinsics[i]);
-            sb_appendf(&html, "<div class=\"item\" id=\"%s\">\n", stack_intrinsics[i]);
-            sb_appendf(&html, "<h2>%s</h2>\n", stack_intrinsics[i]);
+            sb_appendf(html, "<div class=\"item\" id=\"%s\">\n", stack_intrinsics[i]);
+            sb_appendf(html, "<h2>%s</h2>\n", stack_intrinsics[i]);
             if (sig.pool && strlen(Pooled_String(sig)) > 0) {
-                sb_appendf(&html, "<pre class=\"signature\"><code>");
-                html_escape(&html, Pooled_String(sig), sig.len);
-                sb_appendf(&html, "</code></pre>\n");
+                sb_appendf(html, "<pre class=\"signature\"><code>");
+                html_escape(html, Pooled_String(sig), sig.len);
+                sb_appendf(html, "</code></pre>\n");
             }
             if (desc.pool && strlen(Pooled_String(desc)) > 0) {
-                sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(desc));
+                sb_appendf(html, "<div class=\"description\">%s</div>\n", Pooled_String(desc));
             }
-            sb_appendf(&html, "</div>\n\n");
+            sb_appendf(html, "</div>\n\n");
         }
     }
 
     if (memory_start && memory_start < loops_start) {
-        sb_append_cstr(&html, "<h3>Memory Management</h3>\n");
+        sb_append_cstr(html, "<h3>Memory Management</h3>\n");
         for (size_t i = 0; i < sizeof(memory_intrinsics)/sizeof(memory_intrinsics[0]); i++) {
             String_Pool_Index sig = extract_intrinsic_signature(memory_start, loops_start, memory_intrinsics[i]);
             String_Pool_Index desc = extract_intrinsic_description(memory_start, loops_start, memory_intrinsics[i]);
-            sb_appendf(&html, "<div class=\"item\" id=\"%s\">\n", memory_intrinsics[i]);
-            sb_appendf(&html, "<h2>%s</h2>\n", memory_intrinsics[i]);
+            sb_appendf(html, "<div class=\"item\" id=\"%s\">\n", memory_intrinsics[i]);
+            sb_appendf(html, "<h2>%s</h2>\n", memory_intrinsics[i]);
             if (sig.pool && strlen(Pooled_String(sig)) > 0) {
-                sb_appendf(&html, "<pre class=\"signature\"><code>");
-                html_escape(&html, Pooled_String(sig), sig.len);
-                sb_appendf(&html, "</code></pre>\n");
+                sb_appendf(html, "<pre class=\"signature\"><code>");
+                html_escape(html, Pooled_String(sig), sig.len);
+                sb_appendf(html, "</code></pre>\n");
             }
             if (desc.pool && strlen(Pooled_String(desc)) > 0) {
-                sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(desc));
+                sb_appendf(html, "<div class=\"description\">%s</div>\n", Pooled_String(desc));
             }
-            sb_appendf(&html, "</div>\n\n");
+            sb_appendf(html, "</div>\n\n");
         }
     }
 
-    html_section_close(&html);
+    html_section_close(html);
 
-    html_section_open(&html, "control-flow", "Control Flow", "Who needs more than while loops anyways?");
-    sb_appendf(&html, "<div class=\"item\" id=\"while\">\n");
-    sb_appendf(&html, "<h2>while</h2>\n");
+    html_section_open(html, "control-flow", "Control Flow", "Who needs more than while loops anyways?");
+    sb_appendf(html, "<div class=\"item\" id=\"while\">\n");
+    sb_appendf(html, "<h2>while</h2>\n");
     Nob_String_View loop_sv = sv_from_parts(loops_start, procs_start - loops_start);
     sv_chop_by_delim(&loop_sv, '\n');
     String_Pool_Index loop_desc_idx = extract_paragraph_html(loop_sv);
     if (loop_desc_idx.pool && strlen(Pooled_String(loop_desc_idx)) > 0) {
-        sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(loop_desc_idx));
+        sb_appendf(html, "<div class=\"description\">%s</div>\n", Pooled_String(loop_desc_idx));
     }
     const char *loop_sig = extract_code_block(loops_start, procs_start, 0);
     if (loop_sig) {
-        sb_appendf(&html, "<pre class=\"signature\"><code>");
-        html_qleei_highlight(&html, loop_sig, strlen(loop_sig));
-        sb_appendf(&html, "</code></pre>\n");
+        sb_appendf(html, "<pre class=\"signature\"><code>");
+        html_qleei_highlight(html, loop_sig, strlen(loop_sig));
+        sb_appendf(html, "</code></pre>\n");
     }
     const char *loop_example = extract_code_block(loops_start, procs_start, 1);
     if (loop_example) {
-        sb_appendf(&html, "<pre class=\"example\"><code>");
-        html_qleei_highlight(&html, loop_example, strlen(loop_example));
-        sb_appendf(&html, "</code></pre>\n");
+        sb_appendf(html, "<pre class=\"example\"><code>");
+        html_qleei_highlight(html, loop_example, strlen(loop_example));
+        sb_appendf(html, "</code></pre>\n");
     }
-    sb_appendf(&html, "</div>\n\n");
-    html_section_close(&html);
+    sb_appendf(html, "</div>\n\n");
+    html_section_close(html);
 
-    html_section_open(&html, "procedures", "User Procedures", "Defining your own procedures");
-    sb_appendf(&html, "<div class=\"item\" id=\"proc\">\n");
-    sb_appendf(&html, "<h2>proc</h2>\n");
+    html_section_open(html, "procedures", "User Procedures", "Defining your own procedures");
+    sb_appendf(html, "<div class=\"item\" id=\"proc\">\n");
+    sb_appendf(html, "<h2>proc</h2>\n");
     Nob_String_View proc_sv = sv_from_parts(procs_start, len - (procs_start - data));
     sv_chop_by_delim(&proc_sv, '\n');
     String_Pool_Index proc_desc_idx = extract_paragraph_html(proc_sv);
     if (proc_desc_idx.pool && strlen(Pooled_String(proc_desc_idx)) > 0) {
-        sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(proc_desc_idx));
+        sb_appendf(html, "<div class=\"description\">%s</div>\n", Pooled_String(proc_desc_idx));
     }
     const char *proc_sig = extract_code_block(procs_start, data + len, 0);
     if (proc_sig) {
-        sb_appendf(&html, "<pre class=\"signature\"><code>");
-        html_qleei_highlight(&html, proc_sig, strlen(proc_sig));
-        sb_appendf(&html, "</code></pre>\n");
+        sb_appendf(html, "<pre class=\"signature\"><code>");
+        html_qleei_highlight(html, proc_sig, strlen(proc_sig));
+        sb_appendf(html, "</code></pre>\n");
     }
     const char *proc_example = extract_code_block(procs_start, data + len, 1);
     if (proc_example) {
-        sb_appendf(&html, "<pre class=\"example\"><code>");
-        html_qleei_highlight(&html, proc_example, strlen(proc_example));
-        sb_appendf(&html, "</code></pre>\n");
+        sb_appendf(html, "<pre class=\"example\"><code>");
+        html_qleei_highlight(html, proc_example, strlen(proc_example));
+        sb_appendf(html, "</code></pre>\n");
     }
-    sb_appendf(&html, "</div>\n\n");
-    html_section_close(&html);
+    sb_appendf(html, "</div>\n\n");
+    html_section_close(html);
 
-    sb_append_cstr(&html, "</main>\n</div>\n</body>\n</html>\n");
+    sb_append_cstr(html, "</main>\n</div>\n</body>\n</html>\n");
 
-    if (!write_entire_file(output_path, html.items, html.count)) return_defer(false);
+    if (!write_entire_file(output_path, html->items, html->count)) return_defer(false);
 
   defer:
-    sb_free(html);
     sb_free(content);
     return result;
 }
 
-static bool doc_gen_lang_ref_md(const char *output_path) {
+static bool doc_gen_lang_ref_md(String_Builder *md, const char *output_path) {
   bool result = true;
-    String_Builder content = {0};
+  md->count = 0;
+  String_Builder content = {0};
+
     if (!read_entire_file("README.md", &content)) {
         fprintf(stderr, "Failed to read README.md\n");
         return_defer(false);
@@ -519,110 +518,104 @@ static bool doc_gen_lang_ref_md(const char *output_path) {
     const char *stack_start = find_header(data, len, "General Stack Operations:");
     const char *memory_start = find_header(data, len, "Memory Management:");
 
-    String_Builder md = {0};
-    da_reserve(&md, 32 * 1024);
+    sb_append_cstr(md, "# QLeii Language Reference\n\n");
+    sb_append_cstr(md, "QLeei is a simple interpreted stack-based language.\n\n");
 
-    sb_append_cstr(&md, "# QLeii Language Reference\n\n");
-    sb_append_cstr(&md, "QLeei is a simple interpreted stack-based language.\n\n");
-
-    sb_append_cstr(&md, "## Types\n\n");
+    sb_append_cstr(md, "## Types\n\n");
     for (size_t i = 0; i < types_count; i++) {
         String_Pool_Index desc = extract_type_description(types_start, intrinsics_start, types[i]);
-        sb_appendf(&md, "### %s\n\n", types[i]);
-        sb_appendf(&md, "%s\n\n", Pooled_String(desc));
+        sb_appendf(md, "### %s\n\n", types[i]);
+        sb_appendf(md, "%s\n\n", Pooled_String(desc));
     }
 
-    sb_append_cstr(&md, "## Intrinsics\n\n");
+    sb_append_cstr(md, "## Intrinsics\n\n");
 
     if (printing_start && printing_start < (stack_start ? stack_start : loops_start)) {
         const char *printing_end = stack_start ? stack_start : (loops_start ? loops_start : intrinsics_start + 100);
-        sb_append_cstr(&md, "### Printing\n\n");
+        sb_append_cstr(md, "### Printing\n\n");
         for (size_t i = 0; i < sizeof(printing_intrinsics)/sizeof(printing_intrinsics[0]); i++) {
             String_Pool_Index sig = extract_intrinsic_signature(printing_start, printing_end, printing_intrinsics[i]);
             String_Pool_Index desc = extract_intrinsic_description(printing_start, printing_end, printing_intrinsics[i]);
-            sb_appendf(&md, "#### %s\n\n", printing_intrinsics[i]);
+            sb_appendf(md, "#### %s\n\n", printing_intrinsics[i]);
             if (sig.pool && strlen(Pooled_String(sig)) > 0) {
-                sb_appendf(&md, "```\n%s\n```\n\n", Pooled_String(sig));
+                sb_appendf(md, "```\n%s\n```\n\n", Pooled_String(sig));
             }
             if (desc.pool && strlen(Pooled_String(desc)) > 0) {
-                sb_appendf(&md, "%s\n\n", Pooled_String(desc));
+                sb_appendf(md, "%s\n\n", Pooled_String(desc));
             }
         }
     }
 
     if (stack_start && stack_start < (memory_start ? memory_start : loops_start)) {
         const char *stack_end = memory_start ? memory_start : (loops_start ? loops_start : intrinsics_start + 100);
-        sb_append_cstr(&md, "### Stack Operations\n\n");
+        sb_append_cstr(md, "### Stack Operations\n\n");
         for (size_t i = 0; i < sizeof(stack_intrinsics)/sizeof(stack_intrinsics[0]); i++) {
             String_Pool_Index sig = extract_intrinsic_signature(stack_start, stack_end, stack_intrinsics[i]);
             String_Pool_Index desc = extract_intrinsic_description(stack_start, stack_end, stack_intrinsics[i]);
-            sb_appendf(&md, "#### %s\n\n", stack_intrinsics[i]);
+            sb_appendf(md, "#### %s\n\n", stack_intrinsics[i]);
             if (sig.pool && strlen(Pooled_String(sig)) > 0) {
-                sb_appendf(&md, "```\n%s\n```\n\n", Pooled_String(sig));
+                sb_appendf(md, "```\n%s\n```\n\n", Pooled_String(sig));
             }
             if (desc.pool && strlen(Pooled_String(desc)) > 0) {
-                sb_appendf(&md, "%s\n\n", Pooled_String(desc));
+                sb_appendf(md, "%s\n\n", Pooled_String(desc));
             }
         }
     }
 
     if (memory_start && memory_start < loops_start) {
-        sb_append_cstr(&md, "### Memory Management\n\n");
+        sb_append_cstr(md, "### Memory Management\n\n");
         for (size_t i = 0; i < sizeof(memory_intrinsics)/sizeof(memory_intrinsics[0]); i++) {
             String_Pool_Index sig = extract_intrinsic_signature(memory_start, loops_start, memory_intrinsics[i]);
             String_Pool_Index desc = extract_intrinsic_description(memory_start, loops_start, memory_intrinsics[i]);
-            sb_appendf(&md, "#### %s\n\n", memory_intrinsics[i]);
+            sb_appendf(md, "#### %s\n\n", memory_intrinsics[i]);
             if (sig.pool && strlen(Pooled_String(sig)) > 0) {
-                sb_appendf(&md, "```\n%s\n```\n\n", Pooled_String(sig));
+                sb_appendf(md, "```\n%s\n```\n\n", Pooled_String(sig));
             }
             if (desc.pool && strlen(Pooled_String(desc)) > 0) {
-                sb_appendf(&md, "%s\n\n", Pooled_String(desc));
+                sb_appendf(md, "%s\n\n", Pooled_String(desc));
             }
         }
     }
 
-    sb_append_cstr(&md, "## Loops\n\n");
-    sb_appendf(&md, "### while\n\n");
+    sb_append_cstr(md, "## Loops\n\n");
+    sb_appendf(md, "### while\n\n");
     Nob_String_View loop_sv_md = sv_from_parts(loops_start + 9, procs_start - loops_start - 9);
     String_Pool_Index loop_desc_idx = extract_paragraph_md(loop_sv_md);
     if (loop_desc_idx.pool && strlen(Pooled_String(loop_desc_idx)) > 0) {
-        sb_appendf(&md, "%s\n\n", Pooled_String(loop_desc_idx));
+        sb_appendf(md, "%s\n\n", Pooled_String(loop_desc_idx));
     }
     const char *loop_sig_md = extract_code_block(loops_start, procs_start, 0);
     if (loop_sig_md) {
-        sb_appendf(&md, "```qleei\n%s\n```\n\n", loop_sig_md);
+        sb_appendf(md, "```qleei\n%s\n```\n\n", loop_sig_md);
     }
     const char *loop_example_md = extract_code_block(loops_start, procs_start, 1);
     if (loop_example_md) {
-        sb_appendf(&md, "```qleei\n%s\n```\n\n", loop_example_md);
+        sb_appendf(md, "```qleei\n%s\n```\n\n", loop_example_md);
     }
 
-    sb_append_cstr(&md, "## User Procedures\n\n");
-    sb_appendf(&md, "### proc\n\n");
+    sb_append_cstr(md, "## User Procedures\n\n");
+    sb_appendf(md, "### proc\n\n");
     Nob_String_View proc_sv_md = sv_from_parts(procs_start + 19, len - (procs_start - data) - 19);
     String_Pool_Index proc_desc_idx = extract_paragraph_md(proc_sv_md);
     if (proc_desc_idx.pool && strlen(Pooled_String(proc_desc_idx)) > 0) {
-        sb_appendf(&md, "%s\n\n", Pooled_String(proc_desc_idx));
+        sb_appendf(md, "%s\n\n", Pooled_String(proc_desc_idx));
     }
     const char *proc_sig_md = extract_code_block(procs_start, data + len, 0);
     if (proc_sig_md) {
-        sb_appendf(&md, "```qleei\n%s\n```\n\n", proc_sig_md);
+        sb_appendf(md, "```qleei\n%s\n```\n\n", proc_sig_md);
     }
     const char *proc_example_md = extract_code_block(procs_start, data + len, 1);
     if (proc_example_md) {
-        sb_appendf(&md, "```qleei\n%s\n```\n\n", proc_example_md);
+        sb_appendf(md, "```qleei\n%s\n```\n\n", proc_example_md);
     }
 
-    sb_append_null(&md);
-    if (!write_entire_file(output_path, md.items, md.count - 1)) return_defer(false);
+  if (!write_entire_file(output_path, md->items, md->count)) return_defer(false);
 
-  defer:
-    sb_free(md);
-    sb_free(content);
-    return result;
+defer:
+  return result;
 }
 
-bool doc_gen_lang_ref(const char *output_dir) {
+bool doc_gen_lang_ref(String_Builder *sb, const char *output_dir) {
     if (!mkdir_if_not_exists(output_dir)) return false;
 
     char html_path[512];
@@ -630,7 +623,7 @@ bool doc_gen_lang_ref(const char *output_dir) {
     snprintf(html_path, sizeof(html_path), "%s/index.html", output_dir);
     snprintf(md_path, sizeof(md_path), "%s/llm.md", output_dir);
 
-    if (!doc_gen_lang_ref_html(html_path)) return false;
-    if (!doc_gen_lang_ref_md(md_path)) return false;
+    if (!doc_gen_lang_ref_html(sb, html_path)) return false;
+    if (!doc_gen_lang_ref_md(sb, md_path)) return false;
     return true;
 }
