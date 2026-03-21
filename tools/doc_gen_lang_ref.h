@@ -121,27 +121,25 @@ static String_Pool_Index extract_string(const char *start, size_t len) {
 static String_Pool_Index extract_paragraph_html(Nob_String_View sv) {
     String_Builder sb = {0};
     bool seen_content = false;
+    bool pending_break = false;
 
     while (sv.count > 0) {
       Nob_String_View line = sv_chop_by_delim(&sv, '\n');
 
       Nob_String_View trimmed = sv_trim(line);
       if (trimmed.count == 0) {
-        if (!seen_content) {
-          sb_append_cstr(&sb, "<br>");
-          seen_content = true;
-        } else {
-          seen_content = false;
-        }
+        if (seen_content) pending_break = true;
         continue;
       }
-      seen_content = true;
 
       if (sv_starts_with(trimmed, sv_from_cstr("```"))) {
         break;
       }
 
-      if (seen_content) {
+      if (pending_break) {
+        sb_append_cstr(&sb, "<br>");
+        pending_break = false;
+      } else if (seen_content) {
         da_append(&sb, ' ');
       }
 
@@ -178,7 +176,7 @@ static String_Pool_Index extract_paragraph_md(Nob_String_View sv) {
         }
 
         if (pending_newline) {
-            da_append(&sb, '\n');
+            sb_append_cstr(&sb, "\n\n");
             pending_newline = false;
         } else if (seen_content) {
             da_append(&sb, ' ');
@@ -627,12 +625,12 @@ defer:
 bool doc_gen_lang_ref(String_Builder *sb, const char *output_dir) {
     if (!mkdir_if_not_exists(output_dir)) return false;
 
-    char html_path[512];
-    char md_path[512];
-    snprintf(html_path, sizeof(html_path), "%s/index.html", output_dir);
-    snprintf(md_path, sizeof(md_path), "%s/llm.md", output_dir);
+    const char *html_path = temp_sprintf("%s/index.html", output_dir);
+    const char *md_path = temp_sprintf("%s/llm.md", output_dir);
 
     if (!doc_gen_lang_ref_html(sb, html_path)) return false;
+    string_pool.count = 0;
     if (!doc_gen_lang_ref_md(sb, md_path)) return false;
+
     return true;
 }

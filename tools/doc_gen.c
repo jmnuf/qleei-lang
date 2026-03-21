@@ -20,6 +20,7 @@ int main(void) {
   }
   printf("Generated docs/c_ref/index.html and docs/c_ref/llm.md\n");
 
+  temp_reset();
   string_pool.count = 0;
   if (!doc_gen_lang_ref(&sb, "docs/lang_ref")) {
     fprintf(stderr, "Failed while generating docs/lang_ref/index.html and docs/lang_ref/llm.md\n");
