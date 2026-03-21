@@ -88,17 +88,13 @@ static const char *find_header(const char *data, size_t len, const char *header)
     return NULL;
 }
 
-static void unescape_underscores(char *dest, const char *src, size_t src_len) {
-    size_t d = 0;
-    for (size_t s = 0; s < src_len; s++) {
-        if (src[s] == '\\' && s + 1 < src_len && src[s+1] == '_') {
-            dest[d++] = '_';
-            s++;
-        } else {
-            dest[d++] = src[s];
-        }
-    }
-    dest[d] = '\0';
+static const char *unescape_underscores(String_View src) {
+  char *dest = (char*)temp_sv_to_cstr(src);
+  for (size_t i = 0, j = 0; i < src.count && dest[j] != '\0'; ++i, ++j) {
+    if (dest[j] != '\\' || dest[j+1] != '_') continue;
+    for (char *d = dest + j; *d != '\0'; ++d) *d = *(d+1);
+  }
+  return dest;
 }
 
 static int item_matches_name(const char *line, size_t line_len, const char *name) {
@@ -201,24 +197,31 @@ static String_Pool_Index extract_paragraph_md(Nob_String_View sv) {
 }
 
 static String_Pool_Index extract_type_description(const char *section_start, const char *section_end, const char *type_name) {
-    const char *line = section_start;
-    while (line < section_end) {
-        const char *line_end = line;
-        while (line_end < section_end && *line_end != '\n') line_end++;
+  const char *line = section_start;
+  size_t save_point = temp_save();
+  String_Pool_Index result = Null_String_Pool_Index;
 
-        char buf[256];
-        unescape_underscores(buf, line, line_end - line);
+  while (line < section_end) {
+    temp_rewind(save_point);
+    const char *line_end = line;
+    while (line_end < section_end && *line_end != '\n') line_end++;
 
-        if (item_matches_name(buf, strlen(buf), type_name)) {
-            const char *desc_start = buf + 2 + strlen(type_name);
-            while (*desc_start == ' ' || *desc_start == ':') desc_start++;
-            return pool_strdup(desc_start);
-        }
+    const char *buf = unescape_underscores(sv_from_parts(line, line_end - line));
 
-        line = line_end + 1;
-        while (line < section_end && *line == '\n') line++;
+    if (item_matches_name(buf, strlen(buf), type_name)) {
+      const char *desc_start = buf + 2 + strlen(type_name);
+      while (*desc_start == ' ' || *desc_start == ':') desc_start++;
+      return_defer(pool_strdup(desc_start));
     }
-    return pool_strdup("");
+
+    line = line_end + 1;
+    while (line < section_end && *line == '\n') line++;
+  }
+
+defer:
+  temp_rewind(save_point);
+  if (result.pool == NULL) return pool_strdup("");
+  return result;
 }
 
 static String_Pool_Index extract_intrinsic_signature(const char *section_start, const char *section_end, const char *intrinsic_name) {
@@ -227,8 +230,7 @@ static String_Pool_Index extract_intrinsic_signature(const char *section_start, 
         const char *line_end = line;
         while (line_end < section_end && *line_end != '\n') line_end++;
 
-        char buf[512];
-        unescape_underscores(buf, line, line_end - line);
+        const char *buf = unescape_underscores(sv_from_parts(line, line_end - line));
         size_t buf_len = strlen(buf);
 
         if (item_matches_name(buf, buf_len, intrinsic_name) && buf_len > strlen(intrinsic_name) + 4 && strstr(buf, "::") != NULL) {
@@ -257,8 +259,7 @@ static String_Pool_Index extract_intrinsic_description(const char *section_start
         const char *line_end = line;
         while (line_end < section_end && *line_end != '\n') line_end++;
 
-        char buf[512];
-        unescape_underscores(buf, line, line_end - line);
+        const char *buf = unescape_underscores(sv_from_parts(line, line_end - line));
         size_t buf_len = strlen(buf);
 
         if (item_matches_name(buf, buf_len, intrinsic_name) && buf_len > strlen(intrinsic_name) + 4 && strstr(buf, "::") != NULL) {
