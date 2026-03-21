@@ -137,11 +137,13 @@ static void html_section_close(String_Builder *sb) {
     sb_append_cstr(sb, "</section>\n");
 }
 
-static void html_item(String_Builder *sb, Api_Item *item) {
+static void html_code_highlight(String_Builder *sb, String_Pool_Index pcode, Type_List *types, const char *current_name);
+
+static void html_item(String_Builder *sb, Api_Item *item, Type_List *types) {
     sb_appendf(sb, "<div class=\"item\" id=\"%s\">\n", Pooled_String(item->name));
     sb_appendf(sb, "<h2>%s</h2>\n", Pooled_String(item->name));
     sb_appendf(sb, "<pre class=\"signature\"><code>");
-    html_escape(sb, Pooled_String(item->signature), item->signature.len);
+    html_code_highlight(sb, item->signature, types, Pooled_String(item->name));
     sb_appendf(sb, "</code></pre>\n");
     sb_appendf(sb, "<div class=\"description\">%s</div>\n", Pooled_String(item->description));
     sb_appendf(sb, "</div>\n\n");
@@ -162,16 +164,16 @@ static void html_sidebar_group(String_Builder *sb, Group *group) {
     }
 }
 
-static void html_content_group(String_Builder *sb, Group *group) {
+static void html_content_group(String_Builder *sb, Group *group, Type_List *types) {
     if (group->key.pool) {
         sb_appendf(sb, "<details class=\"group\">\n");
         sb_appendf(sb, "<summary>%s</summary>\n", Pooled_String(group->key));
         for (size_t j = 0; j < group->count; j++) {
-            html_item(sb, &group->items[j]);
+            html_item(sb, &group->items[j], types);
         }
         sb_appendf(sb, "</details>\n");
     } else {
-        html_item(sb, &group->items[0]);
+        html_item(sb, &group->items[0], types);
     }
 }
 

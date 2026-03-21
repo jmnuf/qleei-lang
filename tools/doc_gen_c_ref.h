@@ -332,7 +332,149 @@ static bool parse_header(const char *path, Api_List *api) {
     return result;
 }
 
-static bool doc_gen_c_ref_html(String_Builder *html,const char *output_path, Group_List *funcs, Group_List *types) {
+static bool token_is_keyword(const char *word, size_t len) {
+    static const char *keywords[] = {
+        "auto", "break", "case", "char", "const", "continue", "default", "do",
+        "double", "else", "enum", "extern", "float", "for", "goto", "if",
+        "inline", "int", "long", "register", "restrict", "return", "short",
+        "signed", "sizeof", "static", "struct", "switch", "typedef", "union",
+        "unsigned", "void", "volatile", "while", "_Bool", "_Complex", "_Imaginary",
+        "NULL", "true", "false"
+    };
+    for (size_t i = 0; i < sizeof(keywords)/sizeof(keywords[0]); i++) {
+        if (strncmp(word, keywords[i], len) == 0 && keywords[i][len] == '\0') {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool token_is_builtin(const char *word, size_t len) {
+    static const char *types[] = {
+        "size_t", "ssize_t", "bool", "char", "int", "long", "short", "float",
+        "double", "void", "FILE", "ptrdiff_t", "wchar_t", "char16_t", "char32_t",
+        "qleei_uisz_t", "qleei_si8_t", "qleei_ui8_t", "qleei_si16_t", "qleei_ui16_t",
+        "qleei_si32_t", "qleei_ui32_t", "qleei_si64_t", "qleei_ui64_t"
+    };
+    for (size_t i = 0; i < sizeof(types)/sizeof(types[0]); i++) {
+        if (strncmp(word, types[i], len) == 0 && types[i][len] == '\0') {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool token_is_known(const char *word, size_t len, Type_List *types) {
+    for (size_t i = 0; i < types->count; i++) {
+        size_t type_len = strlen(types->items[i]);
+        if (len == type_len && strncmp(word, types->items[i], len) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void html_code_highlight(String_Builder *sb, String_Pool_Index pcode, Type_List *types, const char *current_name) {
+    const char *code = Pooled_String(pcode);
+    size_t len = pcode.len;
+    size_t i = 0;
+    while (i < len) {
+        if (code[i] == '/' && i + 1 < len && code[i+1] == '/') {
+            sb_append_cstr(sb, "<span class=\"syn-cm\">");
+            while (i < len) { da_append(sb, code[i]); if (code[i] == '\n') break; i++; }
+            sb_append_cstr(sb, "</span>");
+            i++;
+        } else if (code[i] == '/' && i + 1 < len && code[i+1] == '*') {
+            sb_append_cstr(sb, "<span class=\"syn-cm\">");
+            da_append(sb, code[i]); da_append(sb, code[i+1]); i += 2;
+            while (i < len - 1) {
+                if (code[i] == '*' && code[i+1] == '/') {
+                    da_append(sb, code[i]); da_append(sb, code[i+1]); i += 2;
+                    break;
+                }
+                da_append(sb, code[i]); i++;
+            }
+            sb_append_cstr(sb, "</span>");
+        } else if (code[i] == '"') {
+            sb_append_cstr(sb, "<span class=\"syn-st\">");
+            da_append(sb, code[i]); i++;
+            while (i < len && code[i] != '"') {
+                if (code[i] == '\\' && i + 1 < len) {
+                    da_append(sb, code[i]); da_append(sb, code[i+1]); i += 2;
+                } else {
+                    da_append(sb, code[i]); i++;
+                }
+            }
+            if (i < len) { da_append(sb, code[i]); i++; }
+            sb_append_cstr(sb, "</span>");
+        } else if (code[i] == '\'' && i + 1 < len) {
+            sb_append_cstr(sb, "<span class=\"syn-st\">");
+            da_append(sb, code[i]); i++;
+            while (i < len && code[i] != '\'') {
+                if (code[i] == '\\' && i + 1 < len) {
+                    da_append(sb, code[i]); da_append(sb, code[i+1]); i += 2;
+                } else {
+                    da_append(sb, code[i]); i++;
+                }
+            }
+            if (i < len) { da_append(sb, code[i]); i++; }
+            sb_append_cstr(sb, "</span>");
+        } else if (isalpha(code[i]) || code[i] == '_') {
+            size_t start = i;
+            while (i < len && (isalnum(code[i]) || code[i] == '_')) i++;
+            size_t word_len = i - start;
+            const char *word = code + start;
+
+            if (token_is_keyword(word, word_len)) {
+                sb_append_cstr(sb, "<span class=\"syn-kw\">");
+                html_escape(sb, word, word_len);
+                sb_append_cstr(sb, "</span>");
+            } else if (token_is_builtin(word, word_len)) {
+                sb_append_cstr(sb, "<span class=\"syn-tp\">");
+                html_escape(sb, word, word_len);
+                sb_append_cstr(sb, "</span>");
+            } else if (token_is_known(word, word_len, types) &&
+                       (current_name == NULL || strncmp(word, current_name, word_len) != 0 || strlen(current_name) != word_len)) {
+                sb_appendf(sb, "<a href=\"#%.*s\" class=\"type-link\">", (int)word_len, word);
+                html_escape(sb, word, word_len);
+                sb_append_cstr(sb, "</a>");
+            } else if (i < len && code[i] == '(') {
+                sb_append_cstr(sb, "<span class=\"syn-fn\">");
+                html_escape(sb, word, word_len);
+                sb_append_cstr(sb, "</span>");
+            } else {
+                html_escape(sb, word, word_len);
+            }
+        } else if (isdigit(code[i])) {
+            size_t start = i;
+            while (i < len && (isalnum(code[i]) || code[i] == '.' || code[i] == '_' || code[i] == 'x' || code[i] == 'X' ||
+                             (code[i] >= 'a' && code[i] <= 'f') || (code[i] >= 'A' && code[i] <= 'F'))) i++;
+            sb_append_cstr(sb, "<span class=\"syn-nm\">");
+            html_escape(sb, code + start, i - start);
+            sb_append_cstr(sb, "</span>");
+        } else if (code[i] == '#') {
+            size_t start = i;
+            while (i < len && !isspace(code[i])) i++;
+            sb_append_cstr(sb, "<span class=\"syn-cp\">");
+            html_escape(sb, code + start, i - start);
+            sb_append_cstr(sb, "</span>");
+        } else {
+            switch (code[i]) {
+                case '&': case '|': case '!': case '=': case '+': case '-': case '*': case '/': case '%':
+                case '<': case '>': case '^': case '~': case '?': case ':':
+                    sb_append_cstr(sb, "<span class=\"syn-cp\">");
+                    da_append(sb, code[i]);
+                    sb_append_cstr(sb, "</span>");
+                    break;
+                default:
+                    da_append(sb, code[i]);
+            }
+            i++;
+        }
+    }
+}
+
+static bool doc_gen_c_ref_html(String_Builder *html,const char *output_path, Group_List *funcs, Group_List *types, Type_List *type_registry) {
   bool result = true;
   html->count = 0;
 
@@ -352,13 +494,13 @@ static bool doc_gen_c_ref_html(String_Builder *html,const char *output_path, Gro
 
     html_section_open(html, "functions", "Functions", "Can you feel? Can you hear me?");
     for (size_t i = 0; i < funcs->count; i++) {
-        html_content_group(html, &funcs->items[i]);
+        html_content_group(html, &funcs->items[i], type_registry);
     }
     html_section_close(html);
 
     html_section_open(html, "types", "Types", "What does this mean?! What does this mean?! WHAT DOES THIS MEAN?!");
     for (size_t i = 0; i < types->count; i++) {
-        html_content_group(html, &types->items[i]);
+        html_content_group(html, &types->items[i], type_registry);
     }
     html_section_close(html);
 
@@ -416,7 +558,7 @@ bool doc_gen_c_ref(String_Builder *sb, const char *output_dir) {
     snprintf(html_path, sizeof(html_path), "%s/index.html", output_dir);
     snprintf(md_path, sizeof(md_path), "%s/llm.md", output_dir);
 
-    if (!doc_gen_c_ref_html(sb, html_path, &funcs, &type_groups)) return_defer(false);
+    if (!doc_gen_c_ref_html(sb, html_path, &funcs, &type_groups, &types)) return_defer(false);
     if (!doc_gen_c_ref_md(sb, md_path, &funcs, &type_groups)) return_defer(false);
 
 defer:
