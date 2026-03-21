@@ -67,7 +67,8 @@ static bool is_function(const char *signature) {
 }
 
 static bool is_type(const char *signature) {
-    return strncmp(signature, "typedef", 7) == 0;
+    return strncmp(signature, "typedef", 7) == 0 ||
+           strncmp(signature, "struct", 6) == 0;
 }
 
 static Group_List group_build(Api_List *api, bool (*filter)(const char*)) {

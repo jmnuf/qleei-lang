@@ -411,9 +411,6 @@ typedef enum {
 const char *qleei_get_value_kind_name(Qleei_Value_Kind kind);
 
 
-/**
- * Forward declaration of generator type.
- */
 struct Qleei_Generator;
 typedef struct Qleei_Generator Qleei_Generator;
 
@@ -533,16 +530,11 @@ typedef struct {
   bool is_generator;
 } Qleei_Proc;
 
-struct Qleei_Generator {
-  Qleei_Proc *proc;
-  QLeei_Lex_Location resume_point;
-  Qleei_Value_Item *stack_items;
-  qleei_uisz_t stack_len;
-  qleei_uisz_t stack_cap;
-  bool exhausted;
-  bool has_yielded_value;
-  Qleei_Value_Item yielded_value;
-};
+/**
+ * Represents a suspended generator state, containing the procedure,
+ * resume position, and stack snapshot.
+ */
+struct Qleei_Generator { Qleei_Proc *proc; QLeei_Lex_Location resume_point; Qleei_Value_Item *stack_items; qleei_uisz_t stack_len; qleei_uisz_t stack_cap; bool exhausted; bool has_yielded_value; Qleei_Value_Item yielded_value; }; typedef struct Qleei_Generator Qleei_Generator;
 
 /**
  * A dynamic array of user-defined procedures.
