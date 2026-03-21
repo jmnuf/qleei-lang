@@ -109,68 +109,53 @@ static Group_List group_build(Api_List *api, bool (*filter)(const char*)) {
 }
 
 static String_Pool_Index parse_symbol_line(const char *content, size_t len, size_t start) {
-    size_t line_start = start;
-    size_t typedef_start = 0;
-    bool found_typedef = false;
-    int brace_count = 0;
-    bool is_typedef = false;
+  size_t save_point = temp_save();
+  String_View content_sv = sv_from_parts(content + start, len);
+  String_Pool_Index result = Null_String_Pool_Index;
+  bool is_typedef = false;
+  const char *typedef_start = NULL;
+  int brace_count = 0;
 
-    for (size_t i = start; i < len; i++) {
-      found_typedef = false;
-        if (content[i] == '\n') {
-            size_t line_end = i;
-            size_t line_len = line_end - line_start;
+  while (content_sv.count) {
+    String_View line = sv_trim(sv_chop_by_delim(&content_sv, '\n'));
+    if (sv_starts_with(line, sv_from_cstr("//")) || sv_starts_with(line, sv_from_cstr("/*"))) continue;
 
-            if (line_len == 0) {
-                line_start = i + 1;
-                continue;
-            }
-
-            char *line = temp_sprintf("%.*s", (int)line_len, content + line_start);
-
-            char *trimmed = line;
-            while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
-
-            if (*trimmed == '\0' || *trimmed == '\n' || strncmp(trimmed, "//", 2) == 0 || strncmp(trimmed, "/*", 2) == 0) {
-                line_start = i + 1;
-                continue;
-            }
-
-            if (strncmp(trimmed, "typedef", 7) == 0) {
-                is_typedef = true;
-                typedef_start = line_start;
-                found_typedef = true;
-            }
-
-            if (is_typedef) {
-                for (size_t j = 0; j < line_len; j++) {
-                    if (content[line_start + j] == '{') brace_count++;
-                    if (content[line_start + j] == '}') brace_count--;
-                }
-                if (brace_count == 0 && found_typedef) {
-                    size_t total_len = i - typedef_start;
-                    char *result = temp_sprintf("%.*s", (int)total_len, content + typedef_start);
-                    String_Pool_Index pooled = pool_strdup(result);
-                    return pooled;
-                }
-            } else {
-                if (strncmp(trimmed, "typedef", 7) == 0 ||
-                    strncmp(trimmed, "struct", 6) == 0 ||
-                    strncmp(trimmed, "enum", 4) == 0 ||
-                    strncmp(trimmed, "static", 6) == 0 ||
-                    strncmp(trimmed, "const", 5) == 0 ||
-                    strncmp(trimmed, "extern", 6) == 0 ||
-                    (trimmed[0] != '#' && (isalpha(trimmed[0]) || trimmed[0] == '_'))) {
-                    char *result = temp_sprintf("%.*s", (int)line_len, content + line_start);
-                    String_Pool_Index pooled = pool_strdup(result);
-                    return pooled;
-                }
-            }
-
-            line_start = i + 1;
-        }
+    if (sv_starts_with(line, sv_from_cstr("typedef"))) {
+      is_typedef = true;
+      typedef_start = line.data;
     }
-    return Null_String_Pool_Index;
+
+    if (is_typedef) {
+      for (size_t j = 0; j < line.count; j++) {
+        if (line.data[j] == '{') brace_count++;
+        if (line.data[j] == '}') brace_count--;
+      }
+      if (brace_count == 0) {
+        size_t typedef_len = (size_t)((line.data + line.count) - typedef_start);
+        String_View typedef_sv = sv_from_parts(typedef_start, typedef_len);
+        const char *line_zstr = temp_sv_to_cstr(typedef_sv);
+        String_Pool_Index pooled = pool_strdup(line_zstr);
+        return_defer(pooled);
+      }
+    } else {
+      if (sv_starts_with(line, sv_from_cstr("typedef")) ||
+          sv_starts_with(line, sv_from_cstr("struct")) ||
+          sv_starts_with(line, sv_from_cstr("enum")) ||
+          sv_starts_with(line, sv_from_cstr("static")) ||
+          sv_starts_with(line, sv_from_cstr("const")) ||
+          sv_starts_with(line, sv_from_cstr("extern")) ||
+          (line.data[0] != '#' && (isalpha(line.data[0]) || line.data[0] == '_'))
+      ) {
+        const char *line_zstr = temp_sv_to_cstr(line);
+        String_Pool_Index pooled = pool_strdup(line_zstr);
+        return_defer(pooled);
+      }
+    }
+  }
+
+defer:
+  temp_rewind(save_point);
+  return result;
 }
 
 static String_Pool_Index parse_name(const char *signature) {
