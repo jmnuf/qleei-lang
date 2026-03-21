@@ -29,6 +29,8 @@ Printing:
   - Consumes a number and prints it to stdout with a newline
 - print_ptr    :: [pointer]  -> []
   - Consumes a pointer and prints it to stdout with a newline
+- print_bool :: [bool]  -> []
+  - Consumes a boolean and prints it to stdout with a newline
 - print_char   :: [number]  -> []
   - Consumes a number, casts it to an C char (8 bit integer) and prints it to stdout with a newline
 - print_zstr   :: [pointer] -> []
@@ -42,7 +44,9 @@ General Stack Operations:
 - drop         :: [a] -> []
   - Drops the first element of the stack.
 - rot2         :: [a, b] -> [b, a]
-  - Swaps the top and second to top elements of the stack. It also has the alias of `swap2` if you prefer that name.
+  - Swaps the top and second to top elements of the stack.
+- swap2        :: [a, b] -> [b, a]
+  - Alias of `rot2`. Swaps the top and second to top elements of the stack.
 - rot3         :: [a, b, c] -> [b, c, a]
   - Rotates the top 3 elements of the stack, so the first (top) goes to third, second goes to first and third goes to second.
 - swap3        :: [a, b, c] -> [c, b, a]
@@ -67,11 +71,19 @@ Memory Management:
 ## Loops
 
 QLeei only supports while loops and if you don't know how while loops work I think you are in the wrong place.
-The syntax is the following:
 ```qleei
 while <condition> begin
     <body>
 end
+```
+
+Example:
+```qleei
+// Printing numbers 1 to 69
+1 while dup 70 - begin
+    dup print_number
+    1 +
+end drop
 ```
 
 ## User Procedures
@@ -80,10 +92,8 @@ You can define your own procedures in QLeei by using the `proc` keyword.
 
 When defining a procedure you must define an expected input types and supposed output types. The input is type checked at RUNTIME!
 Output types are not type checked at all, they are there to make you feel better about yourself.
-
-Syntax is like:
 ```qleei
-proc <name-of-proc> [<..inputs>] -> [<..outputs>] <body> end
+proc <name> [<..inputs>] -> [<..outputs>] <body> end
 ```
 
 Examples:
@@ -91,34 +101,7 @@ Examples:
 // Receives no input and outputs a single number
 proc ascii_E [] -> [number] 69 end
 
-proc alloc_hello_world_zstr [] -> [pointer]
-    14 mem_alloc // Allocates 14 bytes of memory, 13 for for characters and one more for the null byte
-    dup  0 +  72 rot2 mem_save_ui8 // 'H'
-    dup  1 + 101 rot2 mem_save_ui8 // 'e'
-    dup  2 + 108 rot2 mem_save_ui8 // 'l'
-    dup  3 + 108 rot2 mem_save_ui8 // 'l'
-    dup  4 + 111 rot2 mem_save_ui8 // 'o'
-    dup  5 +  44 rot2 mem_save_ui8 // ','
-    dup  6 +  32 rot2 mem_save_ui8 // ' '
-    dup  7 +  87 rot2 mem_save_ui8 // 'W'
-    dup  8 + 111 rot2 mem_save_ui8 // 'o'
-    dup  9 + 114 rot2 mem_save_ui8 // 'r'
-    dup 10 + 108 rot2 mem_save_ui8 // 'l'
-    dup 11 + 100 rot2 mem_save_ui8 // 'd'
-    dup 12 +  33 rot2 mem_save_ui8 // '!'
-    dup 13 +   0 rot2 mem_save_ui8 // '\0'
-end
-
-// Input is the desired array length in this case
-proc alloc_u32_array [number] -> [pointer]
-    dup 32 * mem_alloc
-	rot2 1 -
-	while dup 0 < begin // Zero out array
-		dup rot3 dup rot3 rot2
-		32 * + 0
-		rot2 mem_save_ui32
-		rot2 1 -
-	end drop
-end
+// Receives 2 numbers as input and outputs nothing
+proc print_sum [number, number] -> [] + print_number end
 ```
 
