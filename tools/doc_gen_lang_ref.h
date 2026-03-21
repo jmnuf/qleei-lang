@@ -31,16 +31,20 @@ static bool is_qleei_intrinsic(const char *word, size_t len) {
 static void html_qleei_highlight(String_Builder *sb, const char *code, size_t len) {
     size_t i = 0;
     while (i < len) {
-        if (code[i] == '/' && i + 1 < len && code[i+1] == '/') {
+      String_View sv = sv_from_parts(code + i, len - i);
+        if (sv_starts_with(sv, sv_from_cstr("//"))) {
             sb_append_cstr(sb, "<span class=\"syn-cm\">");
-            while (i < len) { da_append(sb, code[i]); if (code[i] == '\n') break; i++; }
+            String_View line = sv_chop_by_delim(&sv, '\n');
+            html_escape(sb, line.data, line.count);
             sb_append_cstr(sb, "</span>");
             i++;
         } else if (code[i] == '-' && i + 1 < len && code[i+1] == '-') {
-            sb_append_cstr(sb, "<span class=\"syn-cm\">");
-            while (i < len) { da_append(sb, code[i]); if (code[i] == '\n') break; i++; }
-            sb_append_cstr(sb, "</span>");
-            i++;
+          sb_append_cstr(sb, "<span class=\"syn-cm\">");
+          String_View line = sv_chop_by_delim(&sv, '\n');
+          i += line.count;
+          html_escape(sb, line.data, line.count);
+          sb_append_cstr(sb, "</span>");
+          i++;
         } else if (isalpha(code[i]) || code[i] == '_') {
             size_t start = i;
             while (i < len && (isalnum(code[i]) || code[i] == '_')) i++;
@@ -68,10 +72,10 @@ static void html_qleei_highlight(String_Builder *sb, const char *code, size_t le
                 case '&': case '|': case '!': case '=': case '+': case '*': case '/': case '%':
                 case '<': case '>': case '^': case '~': case '?': case ':': case '[': case ']':
                     sb_append_cstr(sb, "<span class=\"syn-cp\">");
-                    da_append(sb, code[i]);
+                    html_escape(sb, code + i, 1);
                     sb_append_cstr(sb, "</span>");
                     break;
-                default: da_append(sb, code[i]);
+                default: html_escape(sb, code + i, 1);
             }
             i++;
         }
