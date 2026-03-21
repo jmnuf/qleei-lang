@@ -5,7 +5,7 @@
 #include "doc_gen_lang_ref.h"
 
 int main(void) {
-    mkdir_if_not_exists("docs");
+    if (!mkdir_if_not_exists("docs")) return 1;
 
     doc_gen_c_ref("docs/c_ref");
     printf("Generated docs/c_ref/index.html and docs/c_ref/llm.md\n");
