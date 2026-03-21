@@ -612,6 +612,8 @@ static bool doc_gen_lang_ref_md(String_Builder *md, const char *output_path) {
   if (!write_entire_file(output_path, md->items, md->count)) return_defer(false);
 
 defer:
+  if (content.items) free(content.items);
+
   return result;
 }
 
