@@ -445,7 +445,8 @@ static bool doc_gen_lang_ref_html(const char *output_path) {
     html_section_open(&html, "control-flow", "Control Flow", "Who needs more than while loops anyways?");
     sb_appendf(&html, "<div class=\"item\" id=\"while\">\n");
     sb_appendf(&html, "<h2>while</h2>\n");
-    Nob_String_View loop_sv = sv_from_parts(loops_start + 9, procs_start - loops_start - 9);
+    Nob_String_View loop_sv = sv_from_parts(loops_start, procs_start - loops_start);
+    sv_chop_by_delim(&loop_sv, '\n');
     String_Pool_Index loop_desc_idx = extract_paragraph_html(loop_sv);
     if (loop_desc_idx.pool && strlen(Pooled_String(loop_desc_idx)) > 0) {
         sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(loop_desc_idx));
@@ -468,7 +469,8 @@ static bool doc_gen_lang_ref_html(const char *output_path) {
     html_section_open(&html, "procedures", "User Procedures", "Defining your own procedures");
     sb_appendf(&html, "<div class=\"item\" id=\"proc\">\n");
     sb_appendf(&html, "<h2>proc</h2>\n");
-    Nob_String_View proc_sv = sv_from_parts(procs_start + 19, len - (procs_start - data) - 19);
+    Nob_String_View proc_sv = sv_from_parts(procs_start, len - (procs_start - data));
+    sv_chop_by_delim(&proc_sv, '\n');
     String_Pool_Index proc_desc_idx = extract_paragraph_html(proc_sv);
     if (proc_desc_idx.pool && strlen(Pooled_String(proc_desc_idx)) > 0) {
         sb_appendf(&html, "<div class=\"description\">%s</div>\n", Pooled_String(proc_desc_idx));
