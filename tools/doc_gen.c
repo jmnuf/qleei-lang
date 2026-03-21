@@ -43,7 +43,10 @@ int main(void) {
 
   html_index_close(&sb);
 
-  write_entire_file("docs/index.html", sb.items, sb.count);
+  if (!write_entire_file("docs/index.html", sb.items, sb.count)) {
+    fprintf(stderr, "Faield while generating docs/index.html\n");
+    return_defer(1);
+  };
   printf("Generated docs/index.html\n");
 
 
