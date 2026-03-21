@@ -111,10 +111,12 @@ static Group_List group_build(Api_List *api, bool (*filter)(const char*)) {
 static String_Pool_Index parse_symbol_line(const char *content, size_t len, size_t start) {
     size_t line_start = start;
     size_t typedef_start = 0;
+    bool found_typedef = false;
     int brace_count = 0;
     bool is_typedef = false;
 
     for (size_t i = start; i < len; i++) {
+      found_typedef = false;
         if (content[i] == '\n') {
             size_t line_end = i;
             size_t line_len = line_end - line_start;
@@ -137,6 +139,7 @@ static String_Pool_Index parse_symbol_line(const char *content, size_t len, size
             if (strncmp(trimmed, "typedef", 7) == 0) {
                 is_typedef = true;
                 typedef_start = line_start;
+                found_typedef = true;
             }
 
             if (is_typedef) {
@@ -144,7 +147,7 @@ static String_Pool_Index parse_symbol_line(const char *content, size_t len, size
                     if (content[line_start + j] == '{') brace_count++;
                     if (content[line_start + j] == '}') brace_count--;
                 }
-                if (brace_count == 0 && typedef_start > 0) {
+                if (brace_count == 0 && found_typedef) {
                     size_t total_len = i - typedef_start;
                     char *result = temp_sprintf("%.*s", (int)total_len, content + typedef_start);
                     String_Pool_Index pooled = pool_strdup(result);
