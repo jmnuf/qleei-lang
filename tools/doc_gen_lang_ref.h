@@ -316,10 +316,11 @@ static const char *extract_code_block(const char *section_start, const char *sec
 static bool doc_gen_lang_ref_html(String_Builder *html, const char *output_path) {
   bool result = true;
   html->count = 0;
+  const char *file_path = "README.md";
 
     String_Builder content = {0};
-    if (!read_entire_file("README.md", &content)) {
-        fprintf(stderr, "Failed to read README.md\n");
+    if (!read_entire_file(file_path, &content)) {
+        fprintf(stderr, "Failed to read %s\n", file_path);
         return_defer(false);
     }
     const char *data = content.items;
@@ -329,6 +330,11 @@ static bool doc_gen_lang_ref_html(String_Builder *html, const char *output_path)
     const char *intrinsics_start = find_header(data, len, "### Intrinsics");
     const char *loops_start = find_header(data, len, "## Loops");
     const char *procs_start = find_header(data, len, "## User Procedures");
+    if (!types_start || !intrinsics_start || !loops_start || !procs_start ||
+        !(types_start < intrinsics_start && intrinsics_start < loops_start && loops_start < procs_start)) {
+      fprintf(stderr, "File %s is missing required language-reference sections or they are out of order\n", file_path);
+      return_defer(false);
+    }
 
     const char *printing_start = find_header(data, len, "Printing:");
     const char *stack_start = find_header(data, len, "General Stack Operations:");
