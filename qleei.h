@@ -410,10 +410,6 @@ typedef enum {
  */
 const char *qleei_get_value_kind_name(Qleei_Value_Kind kind);
 
-
-struct Qleei_Generator;
-typedef struct Qleei_Generator Qleei_Generator;
-
 /**
  * A value that can be stored on the Qleei stack. Contains a kind tag and the actual value data.
  */

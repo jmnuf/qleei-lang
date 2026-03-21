@@ -63,7 +63,8 @@ static int group_cmp(const void *a, const void *b) {
 
 static bool is_function(const char *signature) {
     return strncmp(signature, "static", 6) != 0 &&
-           strncmp(signature, "typedef", 7) != 0;
+           strncmp(signature, "typedef", 7) != 0 &&
+           strncmp(signature, "struct", 6) != 0;
 }
 
 static bool is_type(const char *signature) {
@@ -139,17 +140,23 @@ static String_Pool_Index parse_symbol_line(const char *content, size_t len, size
         return_defer(pooled);
       }
     } else {
-      if (sv_starts_with(line, sv_from_cstr("typedef")) ||
-          sv_starts_with(line, sv_from_cstr("struct")) ||
+      if (sv_starts_with(line, sv_from_cstr("typedef"))) {
+        const char *line_zstr = temp_sv_to_cstr(line);
+        String_Pool_Index pooled = pool_strdup(line_zstr);
+        return_defer(pooled);
+      }
+      if (sv_starts_with(line, sv_from_cstr("struct")) ||
           sv_starts_with(line, sv_from_cstr("enum")) ||
           sv_starts_with(line, sv_from_cstr("static")) ||
           sv_starts_with(line, sv_from_cstr("const")) ||
           sv_starts_with(line, sv_from_cstr("extern")) ||
           (line.data[0] != '#' && (isalpha(line.data[0]) || line.data[0] == '_'))
       ) {
-        const char *line_zstr = temp_sv_to_cstr(line);
-        String_Pool_Index pooled = pool_strdup(line_zstr);
-        return_defer(pooled);
+        if (strstr((const char*)line.data, "typedef") != NULL) {
+          const char *line_zstr = temp_sv_to_cstr(line);
+          String_Pool_Index pooled = pool_strdup(line_zstr);
+          return_defer(pooled);
+        }
       }
     }
   }
