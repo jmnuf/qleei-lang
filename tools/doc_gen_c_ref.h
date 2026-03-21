@@ -118,7 +118,7 @@ static String_Pool_Index parse_symbol_line(const char *content, size_t len, size
 
   while (content_sv.count) {
     String_View line = sv_trim(sv_chop_by_delim(&content_sv, '\n'));
-    if (linde.count == 0 || sv_starts_with(line, sv_from_cstr("//")) || sv_starts_with(line, sv_from_cstr("/*"))) continue;
+    if (line.count == 0 || sv_starts_with(line, sv_from_cstr("//")) || sv_starts_with(line, sv_from_cstr("/*"))) continue;
 
     if (sv_starts_with(line, sv_from_cstr("typedef"))) {
       is_typedef = true;
