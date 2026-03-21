@@ -220,8 +220,8 @@ bool build_docs(Cmd *cmd, Unit *unit) {
     unit_target_desktop(unit);
     unit_output(unit, doc_gen_output);
     unit_input(unit, "./tools/doc_gen.c");
-    unit_input(unit, "./tools/doc_gen_c_ref.c");
-    unit_input(unit, "./tools/doc_gen_lang_ref.c");
+    unit_input(unit, "./tools/doc_gen_c_ref.h");
+    unit_input(unit, "./tools/doc_gen_lang_ref.h");
     unit_input(unit, "./tools/doc_gen.h");
     unit_input(unit, "./nob.h");
     if (!build_unit(cmd, unit)) return false;

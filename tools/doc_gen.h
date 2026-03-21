@@ -49,16 +49,6 @@ static String_Builder string_pool = {0};
 
 extern String_Pool_Index unknown_name;
 
-static String_Pool_Index pool_strdup(const char *str) {
-  String_Pool_Index result;
-  result.index = string_pool.count;
-  result.pool  = &string_pool;
-  sb_append_cstr(&string_pool, str);
-  result.len = string_pool.count - result.index;
-  sb_append_null(&string_pool);
-  return result;
-}
-
 static void html_escape(String_Builder *sb, const char *text, size_t len) {
     for (size_t i = 0; i < len; i++) {
         switch (text[i]) {
@@ -146,7 +136,7 @@ static void html_section_close(String_Builder *sb) {
     sb_append_cstr(sb, "</section>\n");
 }
 
-static void html_item(String_Builder *sb, Api_Item *item, Type_List *types) {
+static void html_item(String_Builder *sb, Api_Item *item) {
     sb_appendf(sb, "<div class=\"item\" id=\"%s\">\n", Pooled_String(item->name));
     sb_appendf(sb, "<h2>%s</h2>\n", Pooled_String(item->name));
     sb_appendf(sb, "<pre class=\"signature\"><code>");
@@ -171,53 +161,17 @@ static void html_sidebar_group(String_Builder *sb, Group *group) {
     }
 }
 
-static void html_content_group(String_Builder *sb, Group *group, Type_List *types) {
+static void html_content_group(String_Builder *sb, Group *group) {
     if (group->key.pool) {
         sb_appendf(sb, "<details class=\"group\">\n");
         sb_appendf(sb, "<summary>%s</summary>\n", Pooled_String(group->key));
         for (size_t j = 0; j < group->count; j++) {
-            html_item(sb, &group->items[j], types);
+            html_item(sb, &group->items[j]);
         }
         sb_appendf(sb, "</details>\n");
     } else {
-        html_item(sb, &group->items[0], types);
+        html_item(sb, &group->items[0]);
     }
-}
-
-static void html_write(const char *output_path, Group_List *funcs, Group_List *types, Type_List *type_registry) {
-    String_Builder html = {0};
-    da_reserve(&html, 64 * 1024);
-
-    html_doc_open(&html);
-
-    sb_append_cstr(&html, "<h2>Functions</h2>\n");
-    for (size_t i = 0; i < funcs->count; i++) {
-        html_sidebar_group(&html, &funcs->items[i]);
-    }
-
-    sb_append_cstr(&html, "<h2>Types</h2>\n");
-    for (size_t i = 0; i < types->count; i++) {
-        html_sidebar_group(&html, &types->items[i]);
-    }
-
-    html_main_open(&html);
-
-    html_section_open(&html, "functions", "Functions", "Can you feel? Can you hear me?");
-    for (size_t i = 0; i < funcs->count; i++) {
-        html_content_group(&html, &funcs->items[i], type_registry);
-    }
-    html_section_close(&html);
-
-    html_section_open(&html, "types", "Types", "What does this mean?! What does this mean?! WHAT DOES THIS MEAN?!");
-    for (size_t i = 0; i < types->count; i++) {
-        html_content_group(&html, &types->items[i], type_registry);
-    }
-    html_section_close(&html);
-
-    sb_append_cstr(&html, "</main>\n</div>\n</body>\n</html>\n");
-
-    write_entire_file(output_path, html.items, html.count);
-    sb_free(html);
 }
 
 static void md_header(String_Builder *sb) {
@@ -238,27 +192,6 @@ static void md_group(String_Builder *sb, Group *group) {
     for (size_t j = 0; j < group->count; j++) {
         md_item(sb, &group->items[j]);
     }
-}
-
-static void md_write(const char *output_path, Group_List *funcs, Group_List *types) {
-    String_Builder md = {0};
-    da_reserve(&md, 32 * 1024);
-
-    md_header(&md);
-
-    sb_append_cstr(&md, "## Functions\n\n");
-    for (size_t i = 0; i < funcs->count; i++) {
-        md_group(&md, &funcs->items[i]);
-    }
-
-    sb_append_cstr(&md, "\n## Types\n\n");
-    for (size_t i = 0; i < types->count; i++) {
-        md_group(&md, &types->items[i]);
-    }
-
-    sb_append_null(&md);
-    write_entire_file(output_path, md.items, md.count - 1);
-    sb_free(md);
 }
 
 static void html_index_open(String_Builder *sb, const char *title) {

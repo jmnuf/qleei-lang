@@ -88,15 +88,6 @@ static const char *find_header(const char *data, size_t len, const char *header)
     return NULL;
 }
 
-static const char *find_next_header(const char *data, size_t len, const char *start) {
-    for (const char *p = start; p < data + len - 2; p++) {
-        if (p[0] == '#' && p[1] == '#' && (p[2] == ' ' || p[2] == '#')) {
-            return p;
-        }
-    }
-    return data + len;
-}
-
 static void unescape_underscores(char *dest, const char *src, size_t src_len) {
     size_t d = 0;
     for (size_t s = 0; s < src_len; s++) {
@@ -117,40 +108,6 @@ static int item_matches_name(const char *line, size_t line_len, const char *name
     if (strncmp(line + 2, name, name_len) != 0) return 0;
     char next = line[2 + name_len];
     return (next == ':' || next == ' ' || next == '\0');
-}
-
-static void trim_string(const char **start, const char *end) {
-    while (*start < end && (**start == ' ' || **start == '\t')) (*start)++;
-    while (*start < end && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\n' || end[-1] == '\r')) end--;
-    *start = *start < end ? *start : end;
-}
-
-static String_Pool_Index extract_signature(const char *line, size_t line_len) {
-    const char *sig_start = NULL;
-    const char *sig_end = line + line_len;
-
-    for (size_t i = 0; i + 4 <= line_len; i++) {
-        if (strncmp(line + i, " ::", 3) == 0) {
-            sig_start = line + i + 3;
-            while (sig_start < line + line_len && *sig_start == ' ') sig_start++;
-            break;
-        }
-    }
-
-    if (!sig_start) return Null_String_Pool_Index;
-
-    const char *end = sig_start;
-    while (end < line + line_len && *end != '\n') end++;
-    while (end > sig_start && (end[-1] == ' ' || end[-1] == '\t')) end--;
-
-    if (end <= sig_start) return Null_String_Pool_Index;
-
-    size_t len = end - sig_start;
-    char *buf = temp_alloc(len + 1);
-    memcpy(buf, sig_start, len);
-    buf[len] = '\0';
-
-    return pool_strdup(buf);
 }
 
 static String_Pool_Index extract_string(const char *start, size_t len) {
@@ -390,11 +347,9 @@ static void doc_gen_lang_ref_html(const char *output_path) {
     html_doc_open(&html);
 
     sb_append_cstr(&html, "<h2>Types</h2>\n");
-    sb_appendf(&html, "<details>\n<summary>Types (%zu)</summary>\n<div class=\"group-items\">\n", types_count);
     for (size_t i = 0; i < types_count; i++) {
         sb_appendf(&html, "<a href=\"#%s\">%s</a>\n", types[i], types[i]);
     }
-    sb_append_cstr(&html, "</div>\n</details>\n");
 
     sb_append_cstr(&html, "<h2>Intrinsics</h2>\n");
     sb_appendf(&html, "<details>\n<summary>Printing (%zu)</summary>\n<div class=\"group-items\">\n", sizeof(printing_intrinsics)/sizeof(printing_intrinsics[0]));
