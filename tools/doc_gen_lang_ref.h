@@ -312,11 +312,13 @@ static const char *extract_code_block(const char *section_start, const char *sec
     return temp_sv_to_cstr(sv);
 }
 
-static void doc_gen_lang_ref_html(const char *output_path) {
+static bool doc_gen_lang_ref_html(const char *output_path) {
+  bool result = true;
+
     String_Builder content = {0};
     if (!read_entire_file("README.md", &content)) {
         fprintf(stderr, "Failed to read README.md\n");
-        return;
+        return_defer(false);
     }
     const char *data = content.items;
     size_t len = content.count;
@@ -488,16 +490,20 @@ static void doc_gen_lang_ref_html(const char *output_path) {
 
     sb_append_cstr(&html, "</main>\n</div>\n</body>\n</html>\n");
 
-    write_entire_file(output_path, html.items, html.count);
+    if (!write_entire_file(output_path, html.items, html.count)) return_defer(false);
+
+  defer:
     sb_free(html);
     sb_free(content);
+    return result;
 }
 
-static void doc_gen_lang_ref_md(const char *output_path) {
+static bool doc_gen_lang_ref_md(const char *output_path) {
+  bool result = true;
     String_Builder content = {0};
     if (!read_entire_file("README.md", &content)) {
         fprintf(stderr, "Failed to read README.md\n");
-        return;
+        return_defer(false);
     }
     const char *data = content.items;
     size_t len = content.count;
@@ -606,19 +612,23 @@ static void doc_gen_lang_ref_md(const char *output_path) {
     }
 
     sb_append_null(&md);
-    write_entire_file(output_path, md.items, md.count - 1);
+    if (!write_entire_file(output_path, md.items, md.count - 1)) return_defer(false);
+
+  defer:
     sb_free(md);
     sb_free(content);
+    return result;
 }
 
-void doc_gen_lang_ref(const char *output_dir) {
-    mkdir_if_not_exists(output_dir);
+bool doc_gen_lang_ref(const char *output_dir) {
+    if (!mkdir_if_not_exists(output_dir)) return false;
 
     char html_path[512];
     char md_path[512];
     snprintf(html_path, sizeof(html_path), "%s/index.html", output_dir);
     snprintf(md_path, sizeof(md_path), "%s/llm.md", output_dir);
 
-    doc_gen_lang_ref_html(html_path);
-    doc_gen_lang_ref_md(md_path);
+    if (!doc_gen_lang_ref_html(html_path)) return false;
+    if (!doc_gen_lang_ref_md(md_path)) return false;
+    return true;
 }

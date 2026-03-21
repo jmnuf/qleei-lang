@@ -289,11 +289,12 @@ static String_Pool_Index parse_doc(const char *doc, size_t len) {
     return pooled;
 }
 
-static void parse_header(const char *path, Api_List *api) {
+static bool parse_header(const char *path, Api_List *api) {
+  bool result = true;
     String_Builder content = {0};
     if (!read_entire_file(path, &content)) {
         fprintf(stderr, "Failed to read %s\n", path);
-        return;
+        return_defer(false);
     }
 
     char *data = content.items;
@@ -338,10 +339,14 @@ static void parse_header(const char *path, Api_List *api) {
         }
     }
 
+  defer:
     sb_free(content);
+    return result;
 }
 
-static void doc_gen_c_ref_html(const char *output_path, Group_List *funcs, Group_List *types) {
+static bool doc_gen_c_ref_html(const char *output_path, Group_List *funcs, Group_List *types) {
+bool result = true;
+
     String_Builder html = {0};
     da_reserve(&html, 64 * 1024);
 
@@ -373,11 +378,15 @@ static void doc_gen_c_ref_html(const char *output_path, Group_List *funcs, Group
 
     sb_append_cstr(&html, "</main>\n</div>\n</body>\n</html>\n");
 
-    write_entire_file(output_path, html.items, html.count);
+    result = write_entire_file(output_path, html.items, html.count);
     sb_free(html);
+
+    return result;
 }
 
-static void doc_gen_c_ref_md(const char *output_path, Group_List *funcs, Group_List *types) {
+static bool doc_gen_c_ref_md(const char *output_path, Group_List *funcs, Group_List *types) {
+  bool result = true;
+
     String_Builder md = {0};
     da_reserve(&md, 32 * 1024);
 
@@ -393,46 +402,59 @@ static void doc_gen_c_ref_md(const char *output_path, Group_List *funcs, Group_L
         md_group(&md, &types->items[i]);
     }
 
-    sb_append_null(&md);
-    write_entire_file(output_path, md.items, md.count - 1);
+    result = write_entire_file(output_path, md.items, md.count);
     sb_free(md);
+
+    return result;
 }
 
-void doc_gen_c_ref(const char *output_dir) {
-    mkdir_if_not_exists(output_dir);
+bool doc_gen_c_ref(const char *output_dir) {
+  bool result = true;
 
-    Api_List api = {0};
-    unknown_name = pool_strdup("unknown");
-    parse_header("qleei.h", &api);
+  Api_List api = {0};
+  Type_List types = {0};
+  Group_List funcs = {0};
+  Group_List type_groups = {0};
+  unknown_name = pool_strdup("unknown");
 
-    Type_List types = {0};
+    if (!mkdir_if_not_exists(output_dir)) return_defer(false);
+
+    if (!parse_header("qleei.h", &api)) return_defer(false);
+
     for (size_t i = 0; i < api.count; i++) {
         if (is_type(Pooled_String(api.items[i].signature))) {
             da_append(&types, Pooled_String(api.items[i].name));
         }
     }
 
-    Group_List funcs = group_build(&api, is_function);
-    Group_List type_groups = group_build(&api, is_type);
+    funcs = group_build(&api, is_function);
+    type_groups = group_build(&api, is_type);
 
     char html_path[512];
     char md_path[512];
     snprintf(html_path, sizeof(html_path), "%s/index.html", output_dir);
     snprintf(md_path, sizeof(md_path), "%s/llm.md", output_dir);
 
-    doc_gen_c_ref_html(html_path, &funcs, &type_groups);
-    doc_gen_c_ref_md(md_path, &funcs, &type_groups);
+    if (!doc_gen_c_ref_html(html_path, &funcs, &type_groups)) return_defer(false);
+    if (!doc_gen_c_ref_md(md_path, &funcs, &type_groups)) return_defer(false);
 
+defer:
+  if (funcs.items) {
     for (size_t i = 0; i < funcs.count; i++) {
-        free(funcs.items[i].items);
+      free(funcs.items[i].items);
     }
     free(funcs.items);
+  }
 
+  if (type_groups.items) {
     for (size_t i = 0; i < type_groups.count; i++) {
-        free(type_groups.items[i].items);
+      free(type_groups.items[i].items);
     }
-    free(type_groups.items);
+    if (type_groups.items) free(type_groups.items);
+  }
 
-    free(api.items);
-    free(types.items);
+  if (api.items) free(api.items);
+  if (types.items) free(types.items);
+
+  return result;
 }
