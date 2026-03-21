@@ -110,7 +110,7 @@ static Group_List group_build(Api_List *api, bool (*filter)(const char*)) {
 
 static String_Pool_Index parse_symbol_line(const char *content, size_t len, size_t start) {
   size_t save_point = temp_save();
-  String_View content_sv = sv_from_parts(content + start, len);
+  String_View content_sv = sv_from_parts(content + start, len - start);
   String_Pool_Index result = Null_String_Pool_Index;
   bool is_typedef = false;
   const char *typedef_start = NULL;
@@ -118,7 +118,7 @@ static String_Pool_Index parse_symbol_line(const char *content, size_t len, size
 
   while (content_sv.count) {
     String_View line = sv_trim(sv_chop_by_delim(&content_sv, '\n'));
-    if (sv_starts_with(line, sv_from_cstr("//")) || sv_starts_with(line, sv_from_cstr("/*"))) continue;
+    if (linde.count == 0 || sv_starts_with(line, sv_from_cstr("//")) || sv_starts_with(line, sv_from_cstr("/*"))) continue;
 
     if (sv_starts_with(line, sv_from_cstr("typedef"))) {
       is_typedef = true;
