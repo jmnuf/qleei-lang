@@ -105,3 +105,43 @@ proc ascii_E [] -> [number] 69 end
 proc print_sum [number, number] -> [] + print_number end
 ```
 
+## Generators
+
+Generators are procedures that can suspend their execution and resume later. They are useful for creating iterators and lazy sequences.
+
+Define a generator using the `proc*` keyword:
+```qleei
+proc* <name> [<..inputs>] -> [<..outputs>] <body> end
+```
+
+The `yield` keyword suspends the generator and returns a value to the caller:
+```qleei
+yield :: [value] -> []
+```
+- Takes the value on top of the stack
+- Saves the generator's current state (stack and position)
+- Duplicates the value for the caller
+- Pushes the generator object and done flag to the caller's stack
+
+The `gen_next` keyword resumes a suspended generator:
+```qleei
+gen_next :: [generator] -> [value, generator, is_done]
+```
+- Requires a generator on top of the stack
+- Resumes the generator from where it last yielded
+- Pushes the yielded value (if any), generator, and done flag
+- The generator remains on the stack for further calls
+
+Example:
+```qleei
+proc* counter [] -> [] 1 yield 2 yield end
+
+counter              // Creates generator: [generator]
+gen_next             // Resumes, yields 1: [1, generator, false]
+rot3 swap3 drop swap2 print_number  // Prints 1
+gen_next             // Resumes, yields 2: [2, generator, false]
+rot3 swap3 drop swap2 print_number  // Prints 2
+gen_next             // Generator ends: [generator, true]
+swap2 drop print_bool  // Prints true
+```
+
