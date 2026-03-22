@@ -137,14 +137,23 @@ const mem = {
     mem.blocks.delete(ptr);
   },
 
+  reset() {
+    this.index = this.heap_base;
+    this.blocks.clear();
+  },
+
   alloc(bytes_count) {
     bytes_count = mem.align_up(bytes_count);
 
     if (this.index + bytes_count > this.heap_end) {
       try {
-	while (this.index + bytes_count > this.heap_end) this.memory.grow(1);
+	while (this.index + bytes_count > this.heap_end) {
+	  this.memory.grow(1);
+	  this.heap_end = this.memory.buffer.byteLength;
+	}
       } catch (e) {
 	console.error('[WASM] Out of Memory: Failed to expand wasm memory');
+	console.error(e);
 	return 0;
       }
     }
@@ -163,7 +172,10 @@ const mem = {
     }
     if (this.index + bytes_count > this.heap_end) {
       try {
-	while (this.index + bytes_count > this.heap_end) this.memory.grow(1);
+	while (this.index + bytes_count > this.heap_end) {
+	  this.memory.grow(1);
+	  this.heap_end = this.memory.buffer.byteLength;
+	}
       } catch (e) {
 	console.error('[WASM] Out of Memory');
 	console.error(e);
@@ -483,9 +495,6 @@ export async function load_interpreter() {
     heap_base: {
       get() { return exports.__heap_base.value; },
     },
-    heap_end: {
-      get() { return exports.__heap_end.value; },
-    },
     buffer: {
       get() { return exports.memory.buffer; },
     },
@@ -494,13 +503,6 @@ export async function load_interpreter() {
   console.log('[INFO] Simple memory manager setup');
   // window.mem = mem;
 
-  const CODE_BUF_CAP = mem.align_up(1024*8);
-  const code_ptr = mem.alloc(CODE_BUF_CAP);
-  if (code_ptr == 0) {
-    throw new Error('Failed to allocate the wanted space for code of' + CODE_BUF_CAP.toString(10) + 'bytes');
-  }
-
-  const input_path_ptr = mem.alloc_js_str_as_zstr('input.ql');
 
   const mod = {};
   for (const k of Object.keys(exports)) {
@@ -509,7 +511,7 @@ export async function load_interpreter() {
     console.log('[INFO] Loaded wasm function:', k, exports[k]);
     mod[k] = exports[k];
   }
-  mod.interpret_buffer = (buf_ptr, buf_len) => mod.qleei_interpret_buffer(input_path_ptr, buf_ptr, buf_len) == 1;
+  mod.interpret_buffer = (input_path_ptr, buf_ptr, buf_len) => mod.qleei_interpret_buffer(input_path_ptr, buf_ptr, buf_len) == 1;
 
   const save_point = {
     index: mem.index,
@@ -517,11 +519,14 @@ export async function load_interpreter() {
   };
 
   const interpret_code = async (code) => {
-    for (const ptr of mem.blocks.keys()) {
-      if (save_point.blocks.includes(ptr)) continue;
-      mem.free(ptr);
+    mem.reset();
+
+    const CODE_BUF_CAP = mem.align_up(1024*8);
+    const code_ptr = mem.alloc(CODE_BUF_CAP);
+    if (code_ptr == 0) {
+  	  throw new Error('Failed to allocate the wanted space for code of' + CODE_BUF_CAP.toString(10) + 'bytes');
     }
-    mem.index = save_point.index;
+    const input_path_ptr = mem.alloc_js_str_as_zstr('input.ql');
 
     const bytes = Utf8.encode(code);
     if (bytes.byteLength + 1 > CODE_BUF_CAP) {
@@ -535,7 +540,7 @@ export async function load_interpreter() {
     }
     view[bytes.byteLength] = 0;
 
-    return mod.interpret_buffer(buf.ptr, buf.len);
+    return mod.interpret_buffer(input_path_ptr, buf.ptr, buf.len);
   };
 
   return {
