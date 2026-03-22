@@ -122,19 +122,19 @@ proc* counter [] -> [] 1 yield 2 yield end
 - yield :: [value] -> []
   - The `yield` keyword suspends the generator and returns a value to the caller. Takes the value on top of the stack, saves the generator's current state (stack and position), and suspends execution returning control to the caller.
 
-- gen_next :: [generator] -> [value, generator, is_done]
-  - The `gen_next` keyword resumes a suspended generator. Requires a generator on top of the stack, resumes from where it last yielded, and pushes the yielded value (if any), generator, and done flag.
+- gen_next :: [generator] -> [is_done, value, generator]
+  - The `gen_next` keyword resumes a suspended generator. Requires a generator on top of the stack, resumes from where it last yielded, and pushes the done flag, yielded value, and generator.
 
 Example:
 ```qleei
 proc* counter [] -> [] 1 yield 2 yield end
 
 counter              // Creates generator: [generator]
-gen_next             // Resumes, yields 1: [1, generator, false]
+gen_next             // Resumes, yields: [false, 1, generator]
 rot3 swap3 drop swap2 print_number  // Prints 1
-gen_next             // Resumes, yields 2: [2, generator, false]
+gen_next             // Resumes, yields: [false, 2, generator]
 rot3 swap3 drop swap2 print_number  // Prints 2
-gen_next             // Generator ends: [generator, true]
+gen_next             // Generator ends: [true, generator]
 swap2 drop print_bool  // Prints true
 ```
 
