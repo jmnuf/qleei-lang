@@ -1234,6 +1234,13 @@ static bool qleei__word_gen_next(Qleei_Word_Handler_Opt opt) {
   if (gen->exhausted) {
     Qleei_Value_Item gen_out = { .as_generator = { .kind = QLEEI_VALUE_KIND_GENERATOR, .value = gen } };
     qleei_alist_append(opt.stack, &gen_out);
+    if (gen->proc->outputs.len > 0 && gen->stack_len > 0) {
+      for (qleei_uisz_t i = 0; i < gen->proc->outputs.len && gen->stack_len > 0; i++) {
+        qleei_uisz_t idx = gen->stack_len - 1 - i;
+        qleei_alist_append(opt.stack, &gen->stack_items[idx]);
+        gen->stack_len--;
+      }
+    }
     Qleei_Value_Item done_item = { .as_bool = { .kind = QLEEI_VALUE_KIND_BOOL, .value = true } };
     qleei_alist_append(opt.stack, &done_item);
     return true;
@@ -1307,6 +1314,13 @@ static bool qleei__word_gen_next(Qleei_Word_Handler_Opt opt) {
     Qleei_Value_Item dup_item = gen->yielded_value;
     qleei_alist_append(opt.stack, &dup_item);
     gen->has_yielded_value = false;
+  }
+  if (gen->proc->outputs.len > 0 && gen->stack_len > 0) {
+    for (qleei_uisz_t i = 0; i < gen->proc->outputs.len && gen->stack_len > 0; i++) {
+      qleei_uisz_t idx = gen->stack_len - 1 - i;
+      qleei_alist_append(opt.stack, &gen->stack_items[idx]);
+      gen->stack_len--;
+    }
   }
   Qleei_Value_Item done_item = { .as_bool = { .kind = QLEEI_VALUE_KIND_BOOL, .value = exhausted } };
   qleei_alist_append(opt.stack, &done_item);
@@ -2049,6 +2063,17 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
 	        gen->stack_cap = 0;
 	        gen->exhausted = false;
 	        gen->has_yielded_value = false;
+	        if (proc->inputs.len > 0) {
+	          if (!qleei_list_reserve((void**)&gen->stack_items, sizeof(Qleei_Value_Item), &gen->stack_cap, proc->inputs.len)) {
+	            qleei_mem_free(gen);
+	            return false;
+	          }
+	          qleei_uisz_t start = stack->len - proc->inputs.len;
+	          qleei_mem_copy(gen->stack_items, stack->items + start,
+	                         proc->inputs.len * sizeof(Qleei_Value_Item));
+	          gen->stack_len = proc->inputs.len;
+	          stack->len -= proc->inputs.len;
+	        }
 	        Qleei_Value_Item gen_item = { .as_generator = { .kind = QLEEI_VALUE_KIND_GENERATOR, .value = gen } };
 	        qleei_alist_append(stack, &gen_item);
 	        return true;
