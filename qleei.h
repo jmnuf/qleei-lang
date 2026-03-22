@@ -1715,10 +1715,8 @@ void qleei_print_stack(Qleei_Stack *s) {
       qleei_printf("Pointer(%p)", item.as_pointer.value);
       break;
     case QLEEI_VALUE_KIND_GENERATOR:
-      qleei_printf("Generator(%s, %s)", 
-        item.as_generator.value->proc ? 
-        (item.as_generator.value->proc->name_sv.len > 0 ? 
-          "<named>" : "<unnamed>") : "NULL",
+      qleei_printf("Generator("QLEEI_SV_Fmt_Str", %s)", 
+        QLEEI_SV_Fmt_Arg(item.as_generator.value->proc->name_sv),
         item.as_generator.value->exhausted ? "exhausted" : "active");
       break;
     default:
