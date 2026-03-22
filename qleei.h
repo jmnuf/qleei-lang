@@ -400,6 +400,8 @@ typedef enum {
   QLEEI_VALUE_KIND_GENERATOR,
 } Qleei_Value_Kind;
 
+typedef struct Qleei_Generator Qleei_Generator;
+
 /**
  * Get a human-readable name for a value kind.
  *
