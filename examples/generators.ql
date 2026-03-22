@@ -1,22 +1,10 @@
-proc* g [] -> [] 1 yield 2 yield end
+proc* n123 [] -> []
+    1 yield
+    2 yield
+    3 yield
+end
 
-g
+n123 while gen_next print_stack 1 - begin
+    print_number
+end
 
-gen_next
-rot3
-swap3
-drop
-swap2
-print_number
-
-gen_next
-rot3
-swap3
-drop
-swap2
-print_number
-
-gen_next
-swap2
-drop
-print_bool
