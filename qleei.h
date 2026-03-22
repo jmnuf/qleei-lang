@@ -390,8 +390,6 @@ QLeei_Lex_Location qleei_lexer_save_point(QLeei_Lexer *l);
  */
 bool qleei_lexer_restore_point(QLeei_Lexer *l, QLeei_Lex_Location save_point);
 
-typedef struct Qleei_Generator Qleei_Generator;
-
 /**
  * The kind of a value on the Qleei stack.
  */
@@ -531,7 +529,7 @@ typedef struct {
  * Represents a suspended generator state, containing the procedure,
  * resume position, and stack snapshot.
  */
-struct Qleei_Generator {
+typedef struct Qleei_Generator {
   Qleei_Proc *proc;
   QLeei_Lex_Location resume_point;
   Qleei_Value_Item *stack_items;
@@ -540,7 +538,7 @@ struct Qleei_Generator {
   bool exhausted;
   bool has_yielded_value;
   Qleei_Value_Item yielded_value;
-};
+} Qleei_Generator;
 
 /**
  * A dynamic array of user-defined procedures.

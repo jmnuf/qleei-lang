@@ -112,77 +112,15 @@ static Group_List group_build(Api_List *api, bool (*filter)(const char*)) {
 
 static String_Pool_Index parse_symbol_line(const char *content, size_t len, size_t start) {
   size_t save_point = temp_save();
-  fprintf(stderr, "DEBUG parse_symbol_line: start=%zu, len=%zu, first_50=%.50s\n", start, len, content + start);
   String_View content_sv = sv_from_parts(content + start, len - start);
   String_Pool_Index result = Null_String_Pool_Index;
   bool is_typedef = false;
   const char *typedef_start = NULL;
   int brace_count = 0;
 
-  bool collecting_def = false;
-  const char *def_start = NULL;
-  int def_brace_count = 0;
-  const char *def_tag = NULL;
-  size_t def_tag_len = 0;
-
   while (content_sv.count) {
     String_View line = sv_trim(sv_chop_by_delim(&content_sv, '\n'));
     if (line.count == 0 || sv_starts_with(line, sv_from_cstr("//")) || sv_starts_with(line, sv_from_cstr("/*"))) continue;
-
-    if (collecting_def) {
-      fprintf(stderr, "DEBUG: collecting_def=true, line=%.50s...\n", line.data);
-      for (size_t j = 0; j < line.count; j++) {
-        if (line.data[j] == '{') def_brace_count++;
-        if (line.data[j] == '}') def_brace_count--;
-      }
-      fprintf(stderr, "DEBUG: def_brace_count=%d, def_tag=%.*s\n", def_brace_count, (int)def_tag_len, def_tag ? def_tag : "NULL");
-      if (def_brace_count == 0) {
-        fprintf(stderr, "DEBUG: def_brace_count is ZERO! Processing combined signature...\n");
-        size_t def_len = (size_t)((line.data + line.count) - def_start);
-        String_View def_sv = sv_from_parts(def_start, def_len);
-        const char *def_zstr = temp_sv_to_cstr(def_sv);
-        fprintf(stderr, "DEBUG: def_zstr = %.50s...\n", def_zstr);
-
-        const char *alias = NULL;
-        size_t alias_len = 0;
-        if (def_tag && def_tag_len > 0) {
-          char *search = temp_sprintf("typedef struct %.*s %.*s", (int)def_tag_len, def_tag, (int)def_tag_len, def_tag);
-          fprintf(stderr, "DEBUG: Looking for '%s' in full content\n", search);
-          const char *alias_search = strstr(content, search);
-          fprintf(stderr, "DEBUG: alias_search = %s\n", alias_search ? "FOUND" : "NOT FOUND");
-            if (alias_search) {
-              const char *search_pattern = temp_sprintf("typedef struct %.*s ", (int)def_tag_len, def_tag);
-              const char *after_pattern = alias_search + strlen(search_pattern);
-              fprintf(stderr, "DEBUG: After pattern, starts with '%c'\n", *after_pattern);
-              const char *alias_end = after_pattern;
-              while (*alias_end && *alias_end != ';' && *alias_end != '\n') alias_end++;
-              if (after_pattern < alias_end && (isalpha(after_pattern[0]) || after_pattern[0] == '_')) {
-                alias = after_pattern;
-                alias_len = alias_end - after_pattern;
-                fprintf(stderr, "DEBUG: Extracted alias: %.*s (len=%zu)\n", (int)alias_len, alias, alias_len);
-              } else {
-                fprintf(stderr, "DEBUG: Could not extract alias\n");
-              }
-            }
-        }
-
-        if (alias && alias_len > 0) {
-          fprintf(stderr, "DEBUG: Creating combined signature...\n");
-          char *combined = temp_sprintf("typedef %.*s %.*s", (int)def_tag_len, def_tag, (int)def_len, def_zstr);
-          fprintf(stderr, "DEBUG: combined part 1: %.50s...\n", combined);
-          char *combined2 = temp_sprintf("%s %.*s;", combined, (int)alias_len, alias);
-          fprintf(stderr, "DEBUG: combined final: %.80s\n", combined2);
-          String_Pool_Index pooled = pool_strdup(combined2);
-          fprintf(stderr, "DEBUG: Returning pooled signature!\n");
-          return_defer(pooled);
-        } else {
-          char *self_typedef = temp_sprintf("typedef %.*s %.*s;", (int)def_tag_len, def_tag, (int)def_len, def_zstr);
-          String_Pool_Index pooled = pool_strdup(self_typedef);
-          return_defer(pooled);
-        }
-      }
-      continue;
-    }
 
     if (sv_starts_with(line, sv_from_cstr("typedef"))) {
       is_typedef = true;
@@ -202,21 +140,8 @@ static String_Pool_Index parse_symbol_line(const char *content, size_t len, size
         return_defer(pooled);
       }
     } else {
-      fprintf(stderr, "DEBUG: else branch, line=%.50s...\n", line.data);
-      if (sv_starts_with(line, sv_from_cstr("typedef"))) {
-        const char *line_zstr = temp_sv_to_cstr(line);
-        String_Pool_Index pooled = pool_strdup(line_zstr);
-        return_defer(pooled);
-      }
-      fprintf(stderr, "DEBUG: At line 201 check\n");
       if (sv_starts_with(line, sv_from_cstr("struct")) ||
-          sv_starts_with(line, sv_from_cstr("enum")) ||
-          sv_starts_with(line, sv_from_cstr("static")) ||
-          sv_starts_with(line, sv_from_cstr("const")) ||
-          sv_starts_with(line, sv_from_cstr("extern")) ||
-          (line.data[0] != '#' && (isalpha(line.data[0]) || line.data[0] == '_'))
-      ) {
-        fprintf(stderr, "DEBUG: Line matches struct/enum/static/const/extern/alpha check\n");
+          sv_starts_with(line, sv_from_cstr("enum"))) {
         bool has_typedef_in_line = false;
         if (line.count >= 7) {
           char *line_copy = (char*)temp_alloc(line.count + 1);
@@ -224,50 +149,15 @@ static String_Pool_Index parse_symbol_line(const char *content, size_t len, size
           line_copy[line.count] = '\0';
           has_typedef_in_line = strstr(line_copy, "typedef") != NULL;
         }
-        fprintf(stderr, "DEBUG: Checking for typedef in line, count=%zu, result=%s\n", line.count, has_typedef_in_line ? "FOUND" : "NOT FOUND");
         if (has_typedef_in_line) {
           const char *line_zstr = temp_sv_to_cstr(line);
           String_Pool_Index pooled = pool_strdup(line_zstr);
           return_defer(pooled);
         }
-
-        if (sv_starts_with(line, sv_from_cstr("struct")) || sv_starts_with(line, sv_from_cstr("enum"))) {
-          fprintf(stderr, "DEBUG: struct/enum branch, checking typedef in this line only...\n");
-          bool has_typedef_this_line = false;
-          if (line.count >= 7) {
-            char *line_copy2 = (char*)temp_alloc(line.count + 1);
-            memcpy(line_copy2, line.data, line.count);
-            line_copy2[line.count] = '\0';
-            has_typedef_this_line = strstr(line_copy2, "typedef") != NULL;
-          }
-          fprintf(stderr, "DEBUG: Line has typedef? %s\n", has_typedef_this_line ? "YES" : "NO");
-          if (!has_typedef_this_line) {
-            fprintf(stderr, "DEBUG: No typedef found, entering collecting_def mode!\n");
-            collecting_def = true;
-            def_start = line.data;
-            def_brace_count = 0;
-            for (size_t j = 0; j < line.count; j++) {
-              if (line.data[j] == '{') def_brace_count++;
-              if (line.data[j] == '}') def_brace_count--;
-            }
-            fprintf(stderr, "DEBUG: After counting braces on this line, def_brace_count=%d\n", def_brace_count);
-
-            if (def_brace_count == 0) {
-              continue;
-            }
-
-            const char *tag_start = line.data;
-            if (sv_starts_with(line, sv_from_cstr("struct"))) tag_start = line.data + 6;
-            else if (sv_starts_with(line, sv_from_cstr("enum"))) tag_start = line.data + 4;
-            while (*tag_start == ' ' || *tag_start == '\t') tag_start++;
-            if (isalpha(*tag_start) || *tag_start == '_') {
-              def_tag = tag_start;
-              const char *tag_end = tag_start;
-              while (isalnum(*tag_end) || *tag_end == '_') tag_end++;
-              def_tag_len = tag_end - tag_start;
-            }
-          }
-        }
+      } else if (line.count > 0 && (isalpha(line.data[0]) || line.data[0] == '_')) {
+        const char *line_zstr = temp_sv_to_cstr(line);
+        String_Pool_Index pooled = pool_strdup(line_zstr);
+        return_defer(pooled);
       }
     }
   }
@@ -278,40 +168,37 @@ defer:
 }
 
 static String_Pool_Index parse_name(const char *signature) {
-    if (strncmp(signature, "typedef", 7) == 0) {
-        const char *ptrn = strstr(signature, "(*");
-        if (ptrn) {
-            const char *p = ptrn + 2;
-            while (*p == ' ' || *p == '\t') p++;
+    size_t sig_len = strlen(signature);
+    if (strncmp(signature, "typedef", 7) == 0 && (strstr(signature, "struct") != NULL || strstr(signature, "enum") != NULL)) {
+        const char *p = signature + sig_len - 1;
+        while (p > signature && (*p == ' ' || *p == '\t' || *p == '\n' || *p == ';')) p--;
+        
+        if (*p == '}') {
+            p--;
+            while (p > signature && (*p == ' ' || *p == '\t' || *p == '\n')) p--;
+        }
+        
+        const char *name_end = p + 1;
+        while (p > signature && (isalnum(*p) || *p == '_')) p--;
+        p++;
+        
+        if (name_end > p) {
+            size_t name_len = name_end - p;
+            char *result = temp_sprintf("%.*s", (int)name_len, p);
+            return pool_strdup(result);
+        }
+    }
 
+    if (strncmp(signature, "typedef", 7) == 0) {
+        const char *ptr_pair = strstr(signature, "(*");
+        if (ptr_pair) {
+            const char *p = ptr_pair + 2;
+            while (*p == ' ' || *p == '\t') p++;
             if (isalnum(*p) || *p == '_') {
                 const char *name_start = p;
                 while (isalnum(*p) || *p == '_') p++;
-                size_t name_len = p - name_start;
-                char *result = temp_sprintf("%.*s", (int)name_len, name_start);
-                return pool_strdup(result);
-            }
-        }
-
-        const char *last_paren = strrchr(signature, ')');
-        if (last_paren) {
-            const char *p = last_paren - 1;
-            while (p > signature && (*p == ' ' || *p == '\t')) p--;
-
-            if (*p == ')') {
-                int depth = 1;
-                while (p > signature && depth > 0) {
-                    p--;
-                    if (*p == ')') depth++;
-                    else if (*p == '(') depth--;
-                }
-                if (p > signature) p--;
-                while (p > signature && (*p == ' ' || *p == '\t' || *p == '*')) p--;
-
-                if (isalnum(*p) || *p == '_') {
-                    const char *name_start = p;
-                    while (name_start > signature && (isalnum(name_start[-1]) || name_start[-1] == '_')) name_start--;
-                    size_t name_len = p - name_start + 1;
+                if (p > name_start) {
+                    size_t name_len = p - name_start;
                     char *result = temp_sprintf("%.*s", (int)name_len, name_start);
                     return pool_strdup(result);
                 }
@@ -322,31 +209,19 @@ static String_Pool_Index parse_name(const char *signature) {
     const char *paren = strchr(signature, '(');
     if (paren) {
         const char *p = paren - 1;
-        while (p > signature && (*p == ' ' || *p == '\t')) p--;
-
-        const char *name_end = p + 1;
-        while (p > signature && (isalnum(*p) || *p == '_')) p--;
-        p++;
-
-        size_t name_len = name_end - p;
-        if (name_len > 0) {
-            char *result = temp_sprintf("%.*s", (int)name_len, p);
-            return pool_strdup(result);
+        while (p > signature && (*p == ' ' || *p == '\t' || *p == '*')) p--;
+        if (p > signature && (isalnum(*p) || *p == '_')) {
+            const char *name_end = p + 1;
+            while (p > signature && (isalnum(*p) || *p == '_')) p--;
+            p++;
+            if (name_end > p) {
+                size_t name_len = name_end - p;
+                char *result = temp_sprintf("%.*s", (int)name_len, p);
+                return pool_strdup(result);
+            }
         }
     }
 
-    const char *p = signature + strlen(signature) - 1;
-    while (p > signature && (*p == ' ' || *p == '\t' || *p == '\n' || *p == ';')) p--;
-
-    const char *name_end = p + 1;
-    while (p > signature && (isalnum(*p) || *p == '_')) p--;
-    p++;
-
-    if (name_end > p) {
-        size_t name_len = name_end - p;
-        char *result = temp_sprintf("%.*s", (int)name_len, p);
-        return pool_strdup(result);
-    }
     return Null_String_Pool_Index;
 }
 
