@@ -1253,7 +1253,11 @@ static bool qleei__word_gen_next(Qleei_Word_Handler_Opt opt) {
   if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
   Qleei_Value_Item gen_item;
   qleei_alist_pop(opt.stack, &gen_item);
-  if (!qleei_action_expects_value_kind(opt.token.loc, opt.token.string, gen_item.kind, QLEEI_VALUE_KIND_GENERATOR)) return false;
+  if (!qleei_action_expects_value_kind(opt.token.loc, opt.token.string, gen_item.kind, QLEEI_VALUE_KIND_GENERATOR)) {
+    qleei_alist_append(opt.stack, &gen_item);
+    qleei_print_stack(opt.stack);
+    return false;
+  }
   Qleei_Generator *gen = gen_item.as_generator.value;
   if (gen->exhausted) {
     Qleei_Value_Item gen_out = { .as_generator = { .kind = QLEEI_VALUE_KIND_GENERATOR, .value = gen } };

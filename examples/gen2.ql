@@ -39,6 +39,8 @@ mem_free
   dup print_zstr
 mem_free
 
-3 @range while gen_next 1 - begin
+3 @range while gen_next ! 1 rot2 - begin
   print_number
 end print_stack
+
+assert_empty
