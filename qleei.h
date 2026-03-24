@@ -554,6 +554,7 @@ typedef struct {
 typedef struct Qleei_Generator {
   Qleei_Proc *proc;
   QLeei_Lex_Location resume_point;
+  QLeei_Lex_Location body_end;
   Qleei_Value_Item *stack_items;
   qleei_uisz_t stack_len;
   qleei_uisz_t stack_cap;
@@ -1285,13 +1286,13 @@ static bool qleei__word_gen_next(Qleei_Word_Handler_Opt opt) {
     opt.stack->cap = 0;
   }
   if (gen->stack_items != NULL && gen->stack_len > 0) {
-    if (!qleei_list_reserve((void**)&opt.stack->items, sizeof(Qleei_Value_Item), &opt.stack->cap, gen->stack_len)) {
+    if (!qleei_alist_reserve(opt.stack, gen->stack_len)) {
       opt.stack->items = caller_stack.items;
       opt.stack->len = caller_stack.len;
       opt.stack->cap = caller_stack.cap;
       return false;
     }
-    qleei_mem_copy(opt.stack->items, gen->stack_items, gen->stack_len * sizeof(Qleei_Value_Item));
+    qleei_mem_copy(opt.stack->items, gen->stack_items, gen->stack_len * sizeof(*opt.stack->items));
     opt.stack->len = gen->stack_len;
     qleei_mem_free(gen->stack_items);
     gen->stack_items = NULL;
@@ -1299,15 +1300,21 @@ static bool qleei__word_gen_next(Qleei_Word_Handler_Opt opt) {
     gen->stack_cap = 0;
   }
   qleei_lexer_restore_point(l, gen->resume_point);
+  Qleei_Proc *prev_proc = it->current_proc;
   it->current_generator = gen;
+  it->current_proc = gen->proc;
+
   bool yielded = false;
   bool exhausted = false;
   while (qleei_lexer_next(l)) {
     if (qleei_sv_eq_zstr(l->token.string, "end")) {
-      exhausted = true;
-      gen->exhausted = true;
-      break;
+      if (qleei_zstr_eq(l->input_path, gen->body_end.file_path) && l->index == gen->body_end.index) {
+        exhausted = true;
+        gen->exhausted = true;
+        break;
+      }
     }
+
     if (l->token.kind == QLEEI_TOKEN_KIND_EOF) {
       qleei_loc_printfn(save_point, "[ERROR] Unterminated generator: missing 'end'");
       opt.stack->items = caller_stack.items;
@@ -1315,17 +1322,20 @@ static bool qleei__word_gen_next(Qleei_Word_Handler_Opt opt) {
       opt.stack->cap = caller_stack.cap;
       return false;
     }
+
     if (!qleei_execute_token(it, true, l->token)) {
       opt.stack->items = caller_stack.items;
       opt.stack->len = caller_stack.len;
       opt.stack->cap = caller_stack.cap;
       return false;
     }
+
     if (it->current_generator == NULL) {
       yielded = true;
       break;
     }
   }
+  it->current_proc = prev_proc;
   if (!exhausted && !yielded) {
     exhausted = true;
     gen->exhausted = true;
@@ -2166,6 +2176,7 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
 	        }
 	        gen->proc = proc;
 	        gen->resume_point = proc->body_start;
+          gen->body_end = proc->body_end;
 	        gen->stack_items = NULL;
 	        gen->stack_len = 0;
 	        gen->stack_cap = 0;
