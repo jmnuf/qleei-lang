@@ -126,6 +126,20 @@ const mem = {
   // The following line of variables are set once the WASM module is loaded
   memory: null, heap_base: 0, heap_end: 0, index: 0,
 
+  // Grow WASM memory
+  ensure_space(bytes_count) {
+    try {
+      while (this.index + bytes_count > this.heap_end) {
+        this.memory.grow(1);
+        this.heap_end = this.memory.buffer.byteLength;
+      }
+      return true;
+    } catch (e) {
+      console.error('[WASM] Out of Memory: Failed to expand wasm memory');
+      console.error(e);
+      return false;
+    }
+  },
 
   // ============================================
   // |
@@ -137,17 +151,16 @@ const mem = {
     mem.blocks.delete(ptr);
   },
 
+
+  reset() {
+    mem.blocks.clear();
+    mem.index = mem.heap_base;
+  },
+
   alloc(bytes_count) {
     bytes_count = mem.align_up(bytes_count);
 
-    if (this.index + bytes_count > this.heap_end) {
-      try {
-	while (this.index + bytes_count > this.heap_end) this.memory.grow(1);
-      } catch (e) {
-	console.error('[WASM] Out of Memory: Failed to expand wasm memory');
-	return 0;
-      }
-    }
+    if (!mem.ensure_space(bytes_count)) return 0;
     const ptr = this.index;
     this.index += bytes_count;
     this.blocks.set(ptr, bytes_count);
@@ -161,15 +174,7 @@ const mem = {
     if (!this.blocks.has(base_ptr)) {
       throw new Error('[WASM] Illegal Memory Access: Attempting to reallocate a pointer that was not formally allocated before');
     }
-    if (this.index + bytes_count > this.heap_end) {
-      try {
-	while (this.index + bytes_count > this.heap_end) this.memory.grow(1);
-      } catch (e) {
-	console.error('[WASM] Out of Memory');
-	console.error(e);
-	return 0;
-      }
-    }
+    if (!mem.ensure_space(bytes_count)) return 0;
 
     const ptr = this.index;
     this.index += bytes_count;
@@ -483,9 +488,6 @@ export async function load_interpreter() {
     heap_base: {
       get() { return exports.__heap_base.value; },
     },
-    heap_end: {
-      get() { return exports.__heap_end.value; },
-    },
     buffer: {
       get() { return exports.memory.buffer; },
     },
@@ -494,14 +496,6 @@ export async function load_interpreter() {
   console.log('[INFO] Simple memory manager setup');
   // window.mem = mem;
 
-  const CODE_BUF_CAP = mem.align_up(1024*8);
-  const code_ptr = mem.alloc(CODE_BUF_CAP);
-  if (code_ptr == 0) {
-    throw new Error('Failed to allocate the wanted space for code of' + CODE_BUF_CAP.toString(10) + 'bytes');
-  }
-
-  const input_path_ptr = mem.alloc_js_str_as_zstr('input.ql');
-
   const mod = {};
   for (const k of Object.keys(exports)) {
     if (k == 'memory') continue;
@@ -509,19 +503,19 @@ export async function load_interpreter() {
     console.log('[INFO] Loaded wasm function:', k, exports[k]);
     mod[k] = exports[k];
   }
-  mod.interpret_buffer = (buf_ptr, buf_len) => mod.qleei_interpret_buffer(input_path_ptr, buf_ptr, buf_len) == 1;
+  mod.interpret_buffer = (input_path_ptr, buf_ptr, buf_len) => mod.qleei_interpret_buffer(input_path_ptr, buf_ptr, buf_len) == 1;
 
-  const save_point = {
-    index: mem.index,
-    blocks: [...mem.blocks.keys()],
-  };
 
   const interpret_code = async (code) => {
-    for (const ptr of mem.blocks.keys()) {
-      if (save_point.blocks.includes(ptr)) continue;
-      mem.free(ptr);
+    mem.reset();
+
+    const CODE_BUF_CAP = mem.align_up(1024*8);
+    const code_ptr = mem.alloc(CODE_BUF_CAP);
+    if (code_ptr == 0) {
+      throw new Error('Failed to allocate the wanted space for code of' + CODE_BUF_CAP.toString(10) + 'bytes');
     }
-    mem.index = save_point.index;
+
+    const input_path_ptr = mem.alloc_js_str_as_zstr('input.ql');
 
     const bytes = Utf8.encode(code);
     if (bytes.byteLength + 1 > CODE_BUF_CAP) {
@@ -535,7 +529,7 @@ export async function load_interpreter() {
     }
     view[bytes.byteLength] = 0;
 
-    return mod.interpret_buffer(buf.ptr, buf.len);
+    return mod.interpret_buffer(input_path_ptr, buf.ptr, buf.len);
   };
 
   return {
