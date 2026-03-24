@@ -63,11 +63,13 @@ static int group_cmp(const void *a, const void *b) {
 
 static bool is_function(const char *signature) {
     return strncmp(signature, "static", 6) != 0 &&
-           strncmp(signature, "typedef", 7) != 0;
+           strncmp(signature, "typedef", 7) != 0 &&
+           strncmp(signature, "struct", 6) != 0;
 }
 
 static bool is_type(const char *signature) {
-    return strncmp(signature, "typedef", 7) == 0;
+    return strncmp(signature, "typedef", 7) == 0 ||
+           strncmp(signature, "struct", 6) == 0;
 }
 
 static Group_List group_build(Api_List *api, bool (*filter)(const char*)) {
@@ -138,14 +140,21 @@ static String_Pool_Index parse_symbol_line(const char *content, size_t len, size
         return_defer(pooled);
       }
     } else {
-      if (sv_starts_with(line, sv_from_cstr("typedef")) ||
-          sv_starts_with(line, sv_from_cstr("struct")) ||
-          sv_starts_with(line, sv_from_cstr("enum")) ||
-          sv_starts_with(line, sv_from_cstr("static")) ||
-          sv_starts_with(line, sv_from_cstr("const")) ||
-          sv_starts_with(line, sv_from_cstr("extern")) ||
-          (line.data[0] != '#' && (isalpha(line.data[0]) || line.data[0] == '_'))
-      ) {
+      if (sv_starts_with(line, sv_from_cstr("struct")) ||
+          sv_starts_with(line, sv_from_cstr("enum"))) {
+        bool has_typedef_in_line = false;
+        if (line.count >= 7) {
+          char *line_copy = (char*)temp_alloc(line.count + 1);
+          memcpy(line_copy, line.data, line.count);
+          line_copy[line.count] = '\0';
+          has_typedef_in_line = strstr(line_copy, "typedef") != NULL;
+        }
+        if (has_typedef_in_line) {
+          const char *line_zstr = temp_sv_to_cstr(line);
+          String_Pool_Index pooled = pool_strdup(line_zstr);
+          return_defer(pooled);
+        }
+      } else if (line.count > 0 && (isalpha(line.data[0]) || line.data[0] == '_')) {
         const char *line_zstr = temp_sv_to_cstr(line);
         String_Pool_Index pooled = pool_strdup(line_zstr);
         return_defer(pooled);
@@ -159,40 +168,37 @@ defer:
 }
 
 static String_Pool_Index parse_name(const char *signature) {
-    if (strncmp(signature, "typedef", 7) == 0) {
-        const char *ptrn = strstr(signature, "(*");
-        if (ptrn) {
-            const char *p = ptrn + 2;
-            while (*p == ' ' || *p == '\t') p++;
+    size_t sig_len = strlen(signature);
+    if (strncmp(signature, "typedef", 7) == 0 && (strstr(signature, "struct") != NULL || strstr(signature, "enum") != NULL)) {
+        const char *p = signature + sig_len - 1;
+        while (p > signature && (*p == ' ' || *p == '\t' || *p == '\n' || *p == ';')) p--;
+        
+        if (*p == '}') {
+            p--;
+            while (p > signature && (*p == ' ' || *p == '\t' || *p == '\n')) p--;
+        }
+        
+        const char *name_end = p + 1;
+        while (p > signature && (isalnum(*p) || *p == '_')) p--;
+        p++;
+        
+        if (name_end > p) {
+            size_t name_len = name_end - p;
+            char *result = temp_sprintf("%.*s", (int)name_len, p);
+            return pool_strdup(result);
+        }
+    }
 
+    if (strncmp(signature, "typedef", 7) == 0) {
+        const char *ptr_pair = strstr(signature, "(*");
+        if (ptr_pair) {
+            const char *p = ptr_pair + 2;
+            while (*p == ' ' || *p == '\t') p++;
             if (isalnum(*p) || *p == '_') {
                 const char *name_start = p;
                 while (isalnum(*p) || *p == '_') p++;
-                size_t name_len = p - name_start;
-                char *result = temp_sprintf("%.*s", (int)name_len, name_start);
-                return pool_strdup(result);
-            }
-        }
-
-        const char *last_paren = strrchr(signature, ')');
-        if (last_paren) {
-            const char *p = last_paren - 1;
-            while (p > signature && (*p == ' ' || *p == '\t')) p--;
-
-            if (*p == ')') {
-                int depth = 1;
-                while (p > signature && depth > 0) {
-                    p--;
-                    if (*p == ')') depth++;
-                    else if (*p == '(') depth--;
-                }
-                if (p > signature) p--;
-                while (p > signature && (*p == ' ' || *p == '\t' || *p == '*')) p--;
-
-                if (isalnum(*p) || *p == '_') {
-                    const char *name_start = p;
-                    while (name_start > signature && (isalnum(name_start[-1]) || name_start[-1] == '_')) name_start--;
-                    size_t name_len = p - name_start + 1;
+                if (p > name_start) {
+                    size_t name_len = p - name_start;
                     char *result = temp_sprintf("%.*s", (int)name_len, name_start);
                     return pool_strdup(result);
                 }
@@ -203,31 +209,19 @@ static String_Pool_Index parse_name(const char *signature) {
     const char *paren = strchr(signature, '(');
     if (paren) {
         const char *p = paren - 1;
-        while (p > signature && (*p == ' ' || *p == '\t')) p--;
-
-        const char *name_end = p + 1;
-        while (p > signature && (isalnum(*p) || *p == '_')) p--;
-        p++;
-
-        size_t name_len = name_end - p;
-        if (name_len > 0) {
-            char *result = temp_sprintf("%.*s", (int)name_len, p);
-            return pool_strdup(result);
+        while (p > signature && (*p == ' ' || *p == '\t' || *p == '*')) p--;
+        if (p > signature && (isalnum(*p) || *p == '_')) {
+            const char *name_end = p + 1;
+            while (p > signature && (isalnum(*p) || *p == '_')) p--;
+            p++;
+            if (name_end > p) {
+                size_t name_len = name_end - p;
+                char *result = temp_sprintf("%.*s", (int)name_len, p);
+                return pool_strdup(result);
+            }
         }
     }
 
-    const char *p = signature + strlen(signature) - 1;
-    while (p > signature && (*p == ' ' || *p == '\t' || *p == '\n' || *p == ';')) p--;
-
-    const char *name_end = p + 1;
-    while (p > signature && (isalnum(*p) || *p == '_')) p--;
-    p++;
-
-    if (name_end > p) {
-        size_t name_len = name_end - p;
-        char *result = temp_sprintf("%.*s", (int)name_len, p);
-        return pool_strdup(result);
-    }
     return Null_String_Pool_Index;
 }
 

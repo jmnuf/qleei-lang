@@ -160,7 +160,9 @@ static void html_sidebar_group(String_Builder *sb, Group *group) {
         sb_appendf(sb, "</div>\n");
         sb_appendf(sb, "</details>\n");
     } else {
-        sb_appendf(sb, "<a href=\"#%s\">%s</a>\n", Pooled_String(group->items[0].name), Pooled_String(group->items[0].name));
+        for (size_t j = 0; j < group->count; j++) {
+            sb_appendf(sb, "<a href=\"#%s\">%s</a>\n", Pooled_String(group->items[j].name), Pooled_String(group->items[j].name));
+        }
     }
 }
 
@@ -173,7 +175,9 @@ static void html_content_group(String_Builder *sb, Group *group, Type_List *type
         }
         sb_appendf(sb, "</details>\n");
     } else {
-        html_item(sb, &group->items[0], types);
+        for (size_t j = 0; j < group->count; j++) {
+            html_item(sb, &group->items[j], types);
+        }
     }
 }
 

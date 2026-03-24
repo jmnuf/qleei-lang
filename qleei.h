@@ -41,6 +41,10 @@ typedef struct {
 
 #define QLEEI_MAX_WORD_SIZE 64
 
+#ifndef QLEEI_MAX_WHILE_STACK_CAPACITY
+#define QLEEI_MAX_WHILE_STACK_CAPACITY 5
+#endif
+
 #define QLEEI_SV_Fmt_Str     "%.*s"
 #define QLEEI_SV_Fmt_Arg(sv) (int)sv.len, sv.data
 
@@ -295,6 +299,19 @@ typedef struct {
   qleei_uisz_t column;
 } QLeei_Lex_Location;
 
+typedef enum {
+  QLEEI_WHILE_PHASE_CONDITION,
+  QLEEI_WHILE_PHASE_BODY,
+} Qleei_While_Phase;
+
+typedef struct {
+  QLeei_Lex_Location condition_start;
+  QLeei_Lex_Location body_start;
+  QLeei_Lex_Location after_while;
+  QLeei_Lex_Location body_end;
+  Qleei_While_Phase phase;
+} Qleei_While_Context;
+
 #define qleei_loc_printfn(loc, ...) \
 do { qleei_printf("%s:%zu:%zu: ", (loc).file_path, (loc).line, (loc).column); qleei_printfn(__VA_ARGS__); } while (0)
 
@@ -390,7 +407,6 @@ QLeei_Lex_Location qleei_lexer_save_point(QLeei_Lexer *l);
  */
 bool qleei_lexer_restore_point(QLeei_Lexer *l, QLeei_Lex_Location save_point);
 
-
 /**
  * The kind of a value on the Qleei stack.
  */
@@ -398,7 +414,10 @@ typedef enum {
   QLEEI_VALUE_KIND_NUMBER,
   QLEEI_VALUE_KIND_POINTER,
   QLEEI_VALUE_KIND_BOOL,
+  QLEEI_VALUE_KIND_GENERATOR,
 } Qleei_Value_Kind;
+
+typedef struct Qleei_Generator Qleei_Generator;
 
 /**
  * Get a human-readable name for a value kind.
@@ -408,7 +427,6 @@ typedef enum {
  *          or "<Unknown>" if `kind` is not recognized.
  */
 const char *qleei_get_value_kind_name(Qleei_Value_Kind kind);
-
 
 /**
  * A value that can be stored on the Qleei stack. Contains a kind tag and the actual value data.
@@ -430,6 +448,11 @@ typedef union {
     Qleei_Value_Kind kind;
     bool value;
   } as_bool;
+
+  struct {
+    Qleei_Value_Kind kind;
+    Qleei_Generator *value;
+  } as_generator;
 } Qleei_Value_Item;
 
 /**
@@ -481,6 +504,25 @@ bool qleei_stack_push(Qleei_Stack *stack, Qleei_Value_Item item);
  */
 bool qleei_stack_pop(Qleei_Stack *stack, Qleei_Value_Item *item);
 
+/**
+ * Copy a stack's contents into a generator's stack snapshot.
+ *
+ * Allocates memory for the destination generator stack and copies
+ * all items from the source stack.
+ *
+ * @param src Source stack to copy from.
+ * @param dst Destination generator to receive the copied stack.
+ * @returns `true` if copy succeeded, `false` on allocation failure.
+ */
+bool qleei_stack_copy(Qleei_Stack *src, Qleei_Generator *dst);
+
+/**
+ * Free a generator's stack snapshot memory.
+ *
+ * @param gen Generator whose stack memory will be freed.
+ */
+void qleei_generator_free(Qleei_Generator *gen);
+
 typedef struct {
   QLeei_Lex_Location body_start;
   QLeei_Lex_Location body_end;
@@ -498,7 +540,28 @@ typedef struct {
     qleei_uisz_t len;
     qleei_uisz_t cap;
   } outputs;
+
+  bool is_generator;
+
+  Qleei_While_Context while_stack[QLEEI_MAX_WHILE_STACK_CAPACITY];
+  qleei_uisz_t while_stack_len;
 } Qleei_Proc;
+
+/**
+ * Represents a suspended generator state, containing the procedure,
+ * resume position, and stack snapshot.
+ */
+typedef struct Qleei_Generator {
+  Qleei_Proc *proc;
+  QLeei_Lex_Location resume_point;
+  QLeei_Lex_Location body_end;
+  Qleei_Value_Item *stack_items;
+  qleei_uisz_t stack_len;
+  qleei_uisz_t stack_cap;
+  bool exhausted;
+  bool has_yielded_value;
+  Qleei_Value_Item yielded_value;
+} Qleei_Generator;
 
 /**
  * A dynamic array of user-defined procedures.
@@ -583,6 +646,11 @@ typedef struct {
   Qleei_Custom_Words words;
   Qleei_Procs  procs;
   bool   done;
+  Qleei_Generator *current_generator;
+
+  Qleei_While_Context while_stack[QLEEI_MAX_WHILE_STACK_CAPACITY];
+  qleei_uisz_t while_stack_len;
+  Qleei_Proc *current_proc;
 } Qleei_Interpreter;
 
 /**
@@ -727,7 +795,7 @@ bool qleei_value_item_as_bool(Qleei_Value_Item item);
  * @param inside_of_proc True if the loop is being executed while parsing/executing inside a procedure; affects execution context.
  * @returns `true` if the loop completed successfully, `false` on error.
  */
-bool qleei_execute_while(Qleei_Interpreter *it, bool inside_of_proc);
+bool qleei_execute_while_pausable(Qleei_Interpreter *it);
 
 /**
  * Execute a single token within the given interpreter, performing stack, memory,
@@ -954,6 +1022,7 @@ static bool qleei__word_print_number(Qleei_Word_Handler_Opt opt) {
   case QLEEI_VALUE_KIND_NUMBER:   qleei_printfn("%.4f", item.as_number.value); break;
   case QLEEI_VALUE_KIND_BOOL:     qleei_printfn("%d", (int)item.as_bool.value); break;
   case QLEEI_VALUE_KIND_POINTER:  qleei_printfn("%zu", (qleei_uisz_t)item.as_pointer.value); break;
+  case QLEEI_VALUE_KIND_GENERATOR: qleei_printfn("[generator]"); break;
   }
   return true;
 }
@@ -966,6 +1035,7 @@ static bool qleei__word_print_uisz(Qleei_Word_Handler_Opt opt) {
   case QLEEI_VALUE_KIND_NUMBER:   qleei_printfn("%zu", (qleei_uisz_t)item.as_number.value); break;
   case QLEEI_VALUE_KIND_BOOL:    qleei_printfn("%zu", (qleei_uisz_t)item.as_bool.value); break;
   case QLEEI_VALUE_KIND_POINTER:  qleei_printfn("%zu", (qleei_uisz_t)item.as_pointer.value); break;
+  case QLEEI_VALUE_KIND_GENERATOR: qleei_printfn("%zu", (qleei_uisz_t)item.as_generator.value); break;
   }
   return true;
 }
@@ -1150,13 +1220,151 @@ static bool qleei__word_proc(Qleei_Word_Handler_Opt opt) {
 }
 
 static bool qleei__word_while(Qleei_Word_Handler_Opt opt) {
-  return qleei_execute_while((Qleei_Interpreter*)opt.user_data, opt.inside_proc);
+  return qleei_execute_while_pausable((Qleei_Interpreter*)opt.user_data);
 }
 
 static bool qleei__word_if(Qleei_Word_Handler_Opt opt) {
   (void)opt;
   qleei_printfn("[TODO] if expressions are not implemented yet");
   return false;
+}
+
+static bool qleei__word_yield(Qleei_Word_Handler_Opt opt) {
+  Qleei_Interpreter *it = (Qleei_Interpreter*)opt.user_data;
+  Qleei_Generator *gen = it->current_generator;
+  if (gen == NULL) {
+    qleei_loc_printfn(opt.token.loc, "[ERROR] yield can only be used inside a generator procedure");
+    return false;
+  }
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  Qleei_Value_Item yielded_value;
+  qleei_alist_pop(opt.stack, &yielded_value);
+  gen->resume_point = qleei_lexer_save_point(&it->lexer);
+  if (!qleei_stack_copy(opt.stack, gen)) return false;
+  qleei_mem_copy(&gen->yielded_value, &yielded_value, sizeof(Qleei_Value_Item));
+  gen->has_yielded_value = true;
+  Qleei_Value_Item gen_item = { .as_generator = { .kind = QLEEI_VALUE_KIND_GENERATOR, .value = gen } };
+  qleei_alist_append(opt.stack, &gen_item);
+  it->current_generator = NULL;
+  return true;
+}
+
+static bool qleei__word_gen_next(Qleei_Word_Handler_Opt opt) {
+  Qleei_Interpreter *it = (Qleei_Interpreter*)opt.user_data;
+  if (!qleei_stack_operation_requires_n_items(opt.token.loc, opt.stack, opt.token.string, 1)) return false;
+  Qleei_Value_Item gen_item;
+  qleei_alist_pop(opt.stack, &gen_item);
+  if (!qleei_action_expects_value_kind(opt.token.loc, opt.token.string, gen_item.kind, QLEEI_VALUE_KIND_GENERATOR)) {
+    qleei_alist_append(opt.stack, &gen_item);
+    qleei_print_stack(opt.stack);
+    return false;
+  }
+  Qleei_Generator *gen = gen_item.as_generator.value;
+  if (gen->exhausted) {
+    Qleei_Value_Item gen_out = { .as_generator = { .kind = QLEEI_VALUE_KIND_GENERATOR, .value = gen } };
+    qleei_alist_append(opt.stack, &gen_out);
+    if (gen->proc->outputs.len > 0 && gen->stack_len > 0) {
+      for (qleei_uisz_t i = 0; i < gen->proc->outputs.len && gen->stack_len > 0; i++) {
+        qleei_uisz_t idx = gen->stack_len - 1 - i;
+        qleei_alist_append(opt.stack, &gen->stack_items[idx]);
+        gen->stack_len--;
+      }
+    }
+    Qleei_Value_Item done_item = { .as_bool = { .kind = QLEEI_VALUE_KIND_BOOL, .value = true } };
+    qleei_alist_append(opt.stack, &done_item);
+    return true;
+  }
+  QLeei_Lexer *l = &it->lexer;
+  QLeei_Lex_Location save_point = qleei_lexer_save_point(l);
+  Qleei_Stack caller_stack = {0};
+  if (opt.stack->len > 0) {
+    caller_stack.items = opt.stack->items;
+    caller_stack.len = opt.stack->len;
+    caller_stack.cap = opt.stack->cap;
+    opt.stack->items = NULL;
+    opt.stack->len = 0;
+    opt.stack->cap = 0;
+  }
+  if (gen->stack_items != NULL && gen->stack_len > 0) {
+    if (!qleei_alist_reserve(opt.stack, gen->stack_len)) {
+      opt.stack->items = caller_stack.items;
+      opt.stack->len = caller_stack.len;
+      opt.stack->cap = caller_stack.cap;
+      return false;
+    }
+    qleei_mem_copy(opt.stack->items, gen->stack_items, gen->stack_len * sizeof(*opt.stack->items));
+    opt.stack->len = gen->stack_len;
+    qleei_mem_free(gen->stack_items);
+    gen->stack_items = NULL;
+    gen->stack_len = 0;
+    gen->stack_cap = 0;
+  }
+  qleei_lexer_restore_point(l, gen->resume_point);
+  Qleei_Proc *prev_proc = it->current_proc;
+  it->current_generator = gen;
+  it->current_proc = gen->proc;
+
+  bool yielded = false;
+  bool exhausted = false;
+  while (qleei_lexer_next(l)) {
+    if (qleei_sv_eq_zstr(l->token.string, "end")) {
+      if (qleei_zstr_eq(l->input_path, gen->body_end.file_path) && l->index == gen->body_end.index) {
+        exhausted = true;
+        gen->exhausted = true;
+        break;
+      }
+    }
+
+    if (l->token.kind == QLEEI_TOKEN_KIND_EOF) {
+      qleei_loc_printfn(save_point, "[ERROR] Unterminated generator: missing 'end'");
+      opt.stack->items = caller_stack.items;
+      opt.stack->len = caller_stack.len;
+      opt.stack->cap = caller_stack.cap;
+      return false;
+    }
+
+    if (!qleei_execute_token(it, true, l->token)) {
+      opt.stack->items = caller_stack.items;
+      opt.stack->len = caller_stack.len;
+      opt.stack->cap = caller_stack.cap;
+      return false;
+    }
+
+    if (it->current_generator == NULL) {
+      yielded = true;
+      break;
+    }
+  }
+  it->current_proc = prev_proc;
+  if (!exhausted && !yielded) {
+    exhausted = true;
+    gen->exhausted = true;
+  }
+  qleei_stack_copy(opt.stack, gen);
+  opt.stack->len = 0;
+  opt.stack->cap = 0;
+  opt.stack->items = caller_stack.items;
+  opt.stack->len = caller_stack.len;
+  opt.stack->cap = caller_stack.cap;
+  Qleei_Value_Item gen_out = { .as_generator = { .kind = QLEEI_VALUE_KIND_GENERATOR, .value = gen } };
+  qleei_alist_append(opt.stack, &gen_out);
+  if (yielded && gen->has_yielded_value) {
+    Qleei_Value_Item dup_item = gen->yielded_value;
+    qleei_alist_append(opt.stack, &dup_item);
+    gen->has_yielded_value = false;
+  }
+  if (gen->proc->outputs.len > 0 && gen->stack_len > 0) {
+    for (qleei_uisz_t i = 0; i < gen->proc->outputs.len && gen->stack_len > 0; i++) {
+      qleei_uisz_t idx = gen->stack_len - 1 - i;
+      qleei_alist_append(opt.stack, &gen->stack_items[idx]);
+      gen->stack_len--;
+    }
+  }
+  Qleei_Value_Item done_item = { .as_bool = { .kind = QLEEI_VALUE_KIND_BOOL, .value = exhausted } };
+  qleei_alist_append(opt.stack, &done_item);
+  it->current_generator = NULL;
+  qleei_lexer_restore_point(l, save_point);
+  return true;
 }
 
 static Qleei_Custom_Word QLEEI_BUILTIN_WORDS[] = {
@@ -1185,6 +1393,8 @@ static Qleei_Custom_Word QLEEI_BUILTIN_WORDS[] = {
   { "mem_load_ui8",   { .handler = qleei__word_mem_load_ui8,  .user_data = NULL } },
   { "mem_save_ui32",  { .handler = qleei__word_mem_save_ui32, .user_data = NULL } },
   { "mem_load_ui32",  { .handler = qleei__word_mem_load_ui32, .user_data = NULL } },
+  { "yield",          { .handler = qleei__word_yield,         .user_data = NULL } },
+  { "gen_next",       { .handler = qleei__word_gen_next,      .user_data = NULL } },
 };
 static const qleei_uisz_t QLEEI_BUILTIN_WORD_COUNT = sizeof(QLEEI_BUILTIN_WORDS) / sizeof(QLEEI_BUILTIN_WORDS[0]);
 
@@ -1194,6 +1404,30 @@ bool qleei_stack_push(Qleei_Stack *stack, Qleei_Value_Item item) {
 
 bool qleei_stack_pop(Qleei_Stack *stack, Qleei_Value_Item *item) {
   return qleei_alist_pop(stack, item);
+}
+
+bool qleei_stack_copy(Qleei_Stack *src, Qleei_Generator *dst) {
+  if (src->len == 0) {
+    dst->stack_items = NULL;
+    dst->stack_len = 0;
+    dst->stack_cap = 0;
+    return true;
+  }
+  if (!qleei_list_reserve((void**)&dst->stack_items, sizeof(Qleei_Value_Item), &dst->stack_cap, src->len)) {
+    return false;
+  }
+  qleei_mem_copy(dst->stack_items, src->items, src->len * sizeof(Qleei_Value_Item));
+  dst->stack_len = src->len;
+  return true;
+}
+
+void qleei_generator_free(Qleei_Generator *gen) {
+  if (gen->stack_items != NULL) {
+    qleei_mem_free(gen->stack_items);
+    gen->stack_items = NULL;
+    gen->stack_len = 0;
+    gen->stack_cap = 0;
+  }
 }
 
 static inline bool qleei_is_space_char(char c) {
@@ -1242,6 +1476,8 @@ const char *qleei_get_value_kind_name(Qleei_Value_Kind kind) {
     return "pointer";
   case QLEEI_VALUE_KIND_BOOL:
     return "bool";
+  case QLEEI_VALUE_KIND_GENERATOR:
+    return "generator";
   }
   return "<Unknown>";
 }
@@ -1530,6 +1766,11 @@ void qleei_print_stack(Qleei_Stack *s) {
     case QLEEI_VALUE_KIND_POINTER:
       qleei_printf("Pointer(%p)", item.as_pointer.value);
       break;
+    case QLEEI_VALUE_KIND_GENERATOR:
+      qleei_printf("Generator("QLEEI_SV_Fmt_Str", %s)", 
+        QLEEI_SV_Fmt_Arg(item.as_generator.value->proc->name_sv),
+        item.as_generator.value->exhausted ? "exhausted" : "active");
+      break;
     default:
       qleei_printf("CorruptedValue(%d, %.4f)", item.kind, item.as_number.value);
       break;
@@ -1541,6 +1782,7 @@ void qleei_print_stack(Qleei_Stack *s) {
 bool qleei_stack_operation_requires_n_items(QLeei_Lex_Location loc, Qleei_Stack *s, Qleei_String_View sv, qleei_uisz_t n) {
   if (s->len < n) {
     qleei_loc_printfn(loc, "[ERROR] "QLEEI_SV_Fmt_Str" requires %zu items in the stack to execute", QLEEI_SV_Fmt_Arg(sv), n);
+    qleei_print_stack(s);
     return false;
   }
   return true;
@@ -1567,6 +1809,8 @@ double qleei_value_item_as_number(Qleei_Value_Item item) {
     return (double)item.as_bool.value;
   case QLEEI_VALUE_KIND_POINTER:
     return (double)(qleei_uisz_t)item.as_pointer.value;
+  case QLEEI_VALUE_KIND_GENERATOR:
+    return (double)(qleei_uisz_t)item.as_generator.value;
   }
   return 0.0;
 }
@@ -1579,69 +1823,158 @@ bool qleei_value_item_as_bool(Qleei_Value_Item item) {
     return item.as_bool.value;
   case QLEEI_VALUE_KIND_POINTER:
     return item.as_pointer.value != NULL;
+  case QLEEI_VALUE_KIND_GENERATOR:
+    return item.as_generator.value != NULL;
   }
   return false;
 }
 
-bool qleei_execute_while(Qleei_Interpreter *it, bool inside_of_proc) {
+bool qleei_execute_while_pausable(Qleei_Interpreter *it) {
   QLeei_Lexer *l = &it->lexer;
-  QLeei_Lex_Location start_point = qleei_lexer_save_point(l);
-  QLeei_Lex_Location end_point = {0};
-  bool end_point_found = false;
+  QLeei_Lex_Location while_loc = qleei_lexer_save_point(l);
+
+  QLeei_Lex_Location condition_start = qleei_lexer_save_point(l);
+  QLeei_Lex_Location body_start = {0};
+  QLeei_Lex_Location body_end = {0};
+  bool begin_found = false;
+  bool first_end_found = false;
+  qleei_uisz_t nesting = 0;
+
   while (qleei_lexer_next(l)) {
     QLeei_Token t = l->token;
-    if (qleei_sv_eq_zstr(t.string, "begin")) {
-      if (it->stack.len == 0) {
-	      qleei_printfn("[ERROR] While loop requires at least one element on the stack to do evaluation but nothing is on the stack");
-	      return false;
+    if (qleei_sv_eq_zstr(t.string, "proc") || qleei_sv_eq_zstr(t.string, "proc*")) {
+      qleei_loc_printfn(t.loc, "[ERROR] Cannot define procedure inside while loop");
+      return false;
+    } else if (qleei_sv_eq_zstr(t.string, "begin")) {
+      if (!begin_found) {
+        begin_found = true;
+        // QLeei_Lex_Location save_point = qleei_lexer_save_point(l);
+        // qleei_lexer_next(l);
+        body_start = qleei_lexer_save_point(l);
+        // qleei_lexer_restore_point(l, save_point);
       }
-
-      Qleei_Value_Item item;
-      qleei_alist_pop(&it->stack, &item);
-      if (!qleei_value_item_as_bool(item)) {
-	      if (end_point_found) {
-	        qleei_lexer_restore_point(l, end_point);
-	        return true;
-	      }
-	      qleei_uisz_t level = 1;
-	      while (level > 0) {
-	        if (!qleei_lexer_next(l)) return false;
-	        t = l->token;
-	        if (qleei_sv_eq_zstr(t.string, "while")) {
-	          level++;
-	        } else if (qleei_sv_eq_zstr(t.string, "end")) {
-	          level--;
-	        }
-	      }
-	      return true;
-      }
-
-      continue;
+      nesting++;
     }
-
     if (qleei_sv_eq_zstr(t.string, "end")) {
-      if (!end_point_found) {
-	      end_point_found = true;
-	      end_point = qleei_lexer_save_point(l);
+      if (nesting == 0) {
+        qleei_loc_printfn(while_loc, "[ERROR] Something went wrong while parsing while loop.");
+        qleei_loc_printfn(t.loc, "[NOTE] You must have a 'begin' before the use of 'end' in a while loop");
+        return false;
       }
-      qleei_lexer_restore_point(l, start_point);
-      continue;
-    }
-
-    if (t.kind == QLEEI_TOKEN_KIND_EOF) {
-      qleei_loc_printfn(start_point, "[ERROR] Unterminated while loop hit: missing 'end' at the end of the loop's body");
+      nesting--;
+      if (nesting == 0) {
+        first_end_found = true;
+        body_end = qleei_lexer_save_point(l);
+        break;
+      }
+    } else if (l->token.kind == QLEEI_TOKEN_KIND_EOF) {
+      qleei_loc_printfn(while_loc, "[ERROR] Something went wrong while parsing while loop.");
+      qleei_loc_printfn(t.loc, "[ERROR] Unterminated while loop: missing 'end'");
       return false;
     }
-
-    if (!qleei_execute_token(it, inside_of_proc, t)) return false;
   }
 
-  return false;
+  if (!begin_found) {
+    qleei_loc_printfn(while_loc, "[ERROR] while loop requires a 'begin' keyword");
+    return false;
+  }
+
+  if (!first_end_found) {
+    qleei_loc_printfn(while_loc, "[ERROR] Unterminated while loop: missing 'end'");
+    return false;
+  }
+
+  Qleei_While_Context ctx = {
+    .condition_start = condition_start,
+    .body_start = body_start,
+    .after_while = while_loc,
+    .body_end = body_end,
+    .phase = QLEEI_WHILE_PHASE_CONDITION,
+  };
+
+  if (it->current_proc != NULL) {
+    if (it->current_proc->while_stack_len >= QLEEI_MAX_WHILE_STACK_CAPACITY) {
+      qleei_loc_printfn(while_loc, "[ERROR] While loop stack overflow in procedure");
+      return false;
+    }
+    it->current_proc->while_stack[it->current_proc->while_stack_len++] = ctx;
+  } else {
+    if (it->while_stack_len >= QLEEI_MAX_WHILE_STACK_CAPACITY) {
+      qleei_loc_printfn(while_loc, "[ERROR] While loop stack overflow");
+      return false;
+    }
+    it->while_stack[it->while_stack_len++] = ctx;
+  }
+
+  return true;
+}
+
+static bool qleei_interpreter_step_while(Qleei_Interpreter *it) {
+  QLeei_Lexer *l = &it->lexer;
+  struct { Qleei_While_Context *ctx; qleei_uisz_t *len; } ws = {0};
+
+  if (it->current_proc != NULL && it->current_proc->while_stack_len > 0) {
+    ws.ctx = &it->current_proc->while_stack[it->current_proc->while_stack_len - 1];
+    ws.len = &it->current_proc->while_stack_len;
+  } else if (it->while_stack_len > 0) {
+    ws.ctx = &it->while_stack[it->while_stack_len - 1];
+    ws.len = &it->while_stack_len;
+  } else {
+    return true;
+  }
+
+  if (ws.ctx->phase == QLEEI_WHILE_PHASE_CONDITION) {
+    qleei_lexer_restore_point(l, ws.ctx->condition_start);
+    while (qleei_lexer_next(l)) {
+      QLeei_Token t = l->token;
+      if (qleei_sv_eq_zstr(t.string, "begin")) {
+        if (it->stack.len == 0) {
+          qleei_loc_printfn(ws.ctx->condition_start, "[ERROR] While loop requires at least one element on the stack for condition");
+          return false;
+        }
+        Qleei_Value_Item item;
+        qleei_alist_pop(&it->stack, &item);
+        if (!qleei_value_item_as_bool(item)) {
+          qleei_lexer_restore_point(l, ws.ctx->body_end);
+          *ws.len = (*ws.len) - 1;
+          return true;
+        }
+        ws.ctx->phase = QLEEI_WHILE_PHASE_BODY;
+        qleei_lexer_restore_point(l, ws.ctx->body_start);
+        return true;
+      }
+      if (!qleei_execute_token(it, it->current_proc != NULL, t)) return false;
+    }
+    return false;
+  } else {
+    if (!qleei_lexer_next(l)) return false;
+    QLeei_Token t = l->token;
+
+    if (l->token.kind == QLEEI_TOKEN_KIND_IDENTIFIER && qleei_sv_eq_zstr(t.string, "begin")) {
+      return true;
+    }
+
+    if (l->token.kind == QLEEI_TOKEN_KIND_IDENTIFIER && qleei_sv_eq_zstr(t.string, "end")) {
+      ws.ctx->phase = QLEEI_WHILE_PHASE_CONDITION;
+      return true;
+    }
+
+    if (!qleei_execute_token(it, it->current_proc != NULL, t)) return false;
+    return true;
+  }
 }
 
 bool qleei_parse_proc(Qleei_Interpreter *it) {
   QLeei_Lexer *l = &it->lexer;
   if (!qleei_lexer_next(l)) return false;
+  
+  Qleei_Proc proc = {0};
+  
+  if (qleei_sv_eq_zstr(l->token.string, "*")) {
+    proc.is_generator = true;
+    if (!qleei_lexer_next(l)) return false;
+  }
+  
   if (l->token.kind != QLEEI_TOKEN_KIND_IDENTIFIER) {
     qleei_printfn("%zu:%zu: [ERROR] Procedure is required to be given a name after 'proc' keyword", l->token.loc.line, l->token.loc.column);
     return false;
@@ -1652,7 +1985,6 @@ bool qleei_parse_proc(Qleei_Interpreter *it) {
     qleei_loc_printfn(l->token.loc, "[ERROR] Cannot define procedure with name '"QLEEI_SV_Fmt_Str"': name conflicts with built-in or custom word", QLEEI_SV_Fmt_Arg(name_sv));
     return false;
   }
-  Qleei_Proc proc = {0};
   proc.name_sv = name_sv;
 
   if (!qleei_lexer_next(l)) return false;
@@ -1836,6 +2168,35 @@ bool qleei_execute_token(Qleei_Interpreter *it, bool inside_of_proc, QLeei_Token
 	          return false;
 	        }
 	      }
+	      if (proc->is_generator) {
+	        Qleei_Generator *gen = qleei_mem_alloc(sizeof(Qleei_Generator));
+	        if (gen == NULL) {
+	          qleei_loc_printfn(t.loc, "[ERROR] Failed to allocate generator");
+	          return false;
+	        }
+	        gen->proc = proc;
+	        gen->resume_point = proc->body_start;
+          gen->body_end = proc->body_end;
+	        gen->stack_items = NULL;
+	        gen->stack_len = 0;
+	        gen->stack_cap = 0;
+	        gen->exhausted = false;
+	        gen->has_yielded_value = false;
+	        if (proc->inputs.len > 0) {
+	          if (!qleei_list_reserve((void**)&gen->stack_items, sizeof(Qleei_Value_Item), &gen->stack_cap, proc->inputs.len)) {
+	            qleei_mem_free(gen);
+	            return false;
+	          }
+	          qleei_uisz_t start = stack->len - proc->inputs.len;
+	          qleei_mem_copy(gen->stack_items, stack->items + start,
+	                         proc->inputs.len * sizeof(Qleei_Value_Item));
+	          gen->stack_len = proc->inputs.len;
+	          stack->len -= proc->inputs.len;
+	        }
+	        Qleei_Value_Item gen_item = { .as_generator = { .kind = QLEEI_VALUE_KIND_GENERATOR, .value = gen } };
+	        qleei_alist_append(stack, &gen_item);
+	        return true;
+	      }
 	      if (!qleei_execute_proc(it, proc)) return false;
 	      return true;
       }
@@ -1987,6 +2348,9 @@ bool qleei_execute_proc(Qleei_Interpreter *it, Qleei_Proc *proc) {
   QLeei_Lexer *l = &it->lexer;
   QLeei_Lex_Location save_point = qleei_lexer_save_point(l);
 
+  Qleei_Proc *prev_proc = it->current_proc;
+  it->current_proc = proc;
+
   qleei_lexer_restore_point(l, proc->body_start);
 
   bool ok = true;
@@ -1997,8 +2361,20 @@ bool qleei_execute_proc(Qleei_Interpreter *it, Qleei_Proc *proc) {
       ok = false;
       break;
     }
-    if (!qleei_execute_token(it, true, l->token)) return false;
+    if (!qleei_execute_token(it, true, l->token)) {
+      it->current_proc = prev_proc;
+      return false;
+    }
+    while (it->current_proc != NULL && it->current_proc->while_stack_len > 0) {
+      if (!qleei_interpreter_step_while(it)) {
+        it->current_proc = prev_proc;
+        return false;
+      }
+    }
   }
+
+  it->current_proc = prev_proc;
+  proc->while_stack_len = 0;
 
   if (ok) qleei_lexer_restore_point(l, save_point);
 
@@ -2006,6 +2382,14 @@ bool qleei_execute_proc(Qleei_Interpreter *it, Qleei_Proc *proc) {
 }
 
 bool qleei_interpreter_step(Qleei_Interpreter *it) {
+  // Check for active while loops
+  if (it->current_proc != NULL && it->current_proc->while_stack_len > 0) {
+    return qleei_interpreter_step_while(it);
+  }
+  if (it->while_stack_len > 0) {
+    return qleei_interpreter_step_while(it);
+  }
+
   if (!qleei_lexer_next(&it->lexer)) return false;
 
   if (!qleei_execute_token(it, false, it->lexer.token)) return false;
@@ -2017,6 +2401,9 @@ void qleei_interpreter_lexer_init(Qleei_Interpreter *it, const char *input_path,
   qleei_lexer_init(&it->lexer, input_path, buffer, buf_size);
   it->stack.len = 0;
   it->done = false;
+  it->current_generator = NULL;
+  it->while_stack_len = 0;
+  it->current_proc = NULL;
 }
 
 void qleei_interpreter_clear(Qleei_Interpreter *it) {
@@ -2027,15 +2414,22 @@ void qleei_interpreter_clear(Qleei_Interpreter *it) {
   qleei_alist_foreach(Qleei_Proc, proc, &it->procs) {
     proc->inputs.len = 0;
     proc->outputs.len = 0;
+    proc->while_stack_len = 0;
   }
   it->procs.len = 0;
   it->done = false;
+  it->current_generator = NULL;
+  it->while_stack_len = 0;
+  it->current_proc = NULL;
 }
 
 void qleei_interpreter_reset(Qleei_Interpreter *it, const char *input_path, const char *buffer, qleei_uisz_t buf_size) {
   qleei_lexer_init(&it->lexer, input_path, buffer, buf_size);
   it->stack.len = 0;
   it->done = false;
+  it->current_generator = NULL;
+  it->while_stack_len = 0;
+  it->current_proc = NULL;
   // words registry is intentionally preserved across resets
 }
 

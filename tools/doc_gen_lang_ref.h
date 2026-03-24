@@ -9,9 +9,10 @@ static const char *printing_intrinsics[] = {
 };
 static const char *stack_intrinsics[] = {"dup", "drop", "rot2", "swap2", "rot3", "swap3", "over"};
 static const char *memory_intrinsics[] = {"mem_alloc", "mem_free", "mem_load_ui8", "mem_save_ui8", "mem_load_ui32", "mem_save_ui32"};
+static const char *generator_intrinsics[] = {"yield", "gen_next"};
 
 static bool is_qleei_keyword(const char *word, size_t len) {
-    static const char *keywords[] = { "if", "while", "begin", "end", "proc" };
+    static const char *keywords[] = { "if", "while", "begin", "end", "proc", "proc*" };
     for (size_t i = 0; i < sizeof(keywords)/sizeof(keywords[0]); i++) {
         if (strncmp(word, keywords[i], len) == 0 && keywords[i][len] == '\0') return true;
     }
@@ -27,6 +28,9 @@ static bool is_qleei_intrinsic(const char *word, size_t len) {
     }
     for (size_t i = 0; i < sizeof(memory_intrinsics)/sizeof(memory_intrinsics[0]); i++) {
         if (strncmp(word, memory_intrinsics[i], len) == 0 && strlen(memory_intrinsics[i]) == len) return true;
+    }
+    for (size_t i = 0; i < sizeof(generator_intrinsics)/sizeof(generator_intrinsics[0]); i++) {
+        if (strncmp(word, generator_intrinsics[i], len) == 0 && strlen(generator_intrinsics[i]) == len) return true;
     }
     return false;
 }
@@ -328,8 +332,9 @@ static bool doc_gen_lang_ref_html(String_Builder *html, const char *output_path)
     const char *intrinsics_start = find_header(data, len, "### Intrinsics");
     const char *loops_start = find_header(data, len, "## Loops");
     const char *procs_start = find_header(data, len, "## User Procedures");
-    if (!types_start || !intrinsics_start || !loops_start || !procs_start ||
-        !(types_start < intrinsics_start && intrinsics_start < loops_start && loops_start < procs_start)) {
+    const char *generators_start = find_header(data, len, "## Generators");
+    if (!types_start || !intrinsics_start || !loops_start || !procs_start || !generators_start ||
+        !(types_start < intrinsics_start && intrinsics_start < loops_start && loops_start < procs_start && procs_start < generators_start)) {
       fprintf(stderr, "File %s is missing required language-reference sections or they are out of order\n", file_path);
       return_defer(false);
     }
@@ -369,6 +374,12 @@ static bool doc_gen_lang_ref_html(String_Builder *html, const char *output_path)
 
     sb_append_cstr(html, "<h2>User Procedures</h2>\n");
     sb_append_cstr(html, "<a href=\"#proc\">proc</a>\n");
+
+    sb_append_cstr(html, "<h2>Generators</h2>\n");
+    sb_append_cstr(html, "<a href=\"#proc\">proc*</a>\n");
+    for (size_t i = 0; i < sizeof(generator_intrinsics)/sizeof(generator_intrinsics[0]); i++) {
+        sb_appendf(html, "<a href=\"#%s\">%s</a>\n", generator_intrinsics[i], generator_intrinsics[i]);
+    }
 
     html_main_open(html);
 
@@ -493,6 +504,45 @@ static bool doc_gen_lang_ref_html(String_Builder *html, const char *output_path)
     sb_appendf(html, "</div>\n\n");
     html_section_close(html);
 
+    html_section_open(html, "generators", "Generators", "Procedures that can suspend and resume execution");
+    sb_appendf(html, "<div class=\"item\" id=\"proc*\">\n");
+    sb_appendf(html, "<h2>proc*</h2>\n");
+    Nob_String_View gen_sv = sv_from_parts(generators_start, len - (generators_start - data));
+    sv_chop_by_delim(&gen_sv, '\n');
+    String_Pool_Index gen_desc_idx = extract_paragraph_html(gen_sv);
+    if (gen_desc_idx.pool && strlen(Pooled_String(gen_desc_idx)) > 0) {
+        sb_appendf(html, "<div class=\"description\">%s</div>\n", Pooled_String(gen_desc_idx));
+    }
+    const char *gen_sig = extract_code_block(generators_start, data + len, 0);
+    if (gen_sig) {
+        sb_appendf(html, "<pre class=\"signature\"><code>");
+        html_qleei_highlight(html, gen_sig, strlen(gen_sig));
+        sb_appendf(html, "</code></pre>\n");
+    }
+    const char *gen_example = extract_code_block(generators_start, data + len, 1);
+    if (gen_example) {
+        sb_appendf(html, "<pre class=\"example\"><code>");
+        html_qleei_highlight(html, gen_example, strlen(gen_example));
+        sb_appendf(html, "</code></pre>\n");
+    }
+    sb_appendf(html, "</div>\n\n");
+    for (size_t i = 0; i < sizeof(generator_intrinsics)/sizeof(generator_intrinsics[0]); i++) {
+        String_Pool_Index sig = extract_intrinsic_signature(generators_start, data + len, generator_intrinsics[i]);
+        String_Pool_Index desc = extract_intrinsic_description(generators_start, data + len, generator_intrinsics[i]);
+        sb_appendf(html, "<div class=\"item\" id=\"%s\">\n", generator_intrinsics[i]);
+        sb_appendf(html, "<h2>%s</h2>\n", generator_intrinsics[i]);
+        if (sig.pool && strlen(Pooled_String(sig)) > 0) {
+            sb_appendf(html, "<pre class=\"signature\"><code>");
+            html_escape(html, Pooled_String(sig), sig.len);
+            sb_appendf(html, "</code></pre>\n");
+        }
+        if (desc.pool && strlen(Pooled_String(desc)) > 0) {
+            sb_appendf(html, "<div class=\"description\">%s</div>\n", Pooled_String(desc));
+        }
+        sb_appendf(html, "</div>\n\n");
+    }
+    html_section_close(html);
+
     sb_append_cstr(html, "</main>\n</div>\n</body>\n</html>\n");
 
     if (!write_entire_file(output_path, html->items, html->count)) return_defer(false);
@@ -518,6 +568,7 @@ static bool doc_gen_lang_ref_md(String_Builder *md, const char *output_path) {
     const char *intrinsics_start = find_header(data, len, "### Intrinsics");
     const char *loops_start = find_header(data, len, "## Loops");
     const char *procs_start = find_header(data, len, "## User Procedures");
+    const char *generators_start = find_header(data, len, "## Generators");
 
     const char *printing_start = find_header(data, len, "Printing:");
     const char *stack_start = find_header(data, len, "General Stack Operations:");
@@ -612,6 +663,35 @@ static bool doc_gen_lang_ref_md(String_Builder *md, const char *output_path) {
     const char *proc_example_md = extract_code_block(procs_start, data + len, 1);
     if (proc_example_md) {
         sb_appendf(md, "```qleei\n%s\n```\n\n", proc_example_md);
+    }
+
+    if (generators_start) {
+        sb_append_cstr(md, "## Generators\n\n");
+        sb_appendf(md, "### proc*\n\n");
+        Nob_String_View gen_sv_md = sv_from_parts(generators_start + 15, len - (generators_start - data) - 15);
+        String_Pool_Index gen_desc_idx = extract_paragraph_md(gen_sv_md);
+        if (gen_desc_idx.pool && strlen(Pooled_String(gen_desc_idx)) > 0) {
+            sb_appendf(md, "%s\n\n", Pooled_String(gen_desc_idx));
+        }
+        const char *gen_sig_md = extract_code_block(generators_start, data + len, 0);
+        if (gen_sig_md) {
+            sb_appendf(md, "```qleei\n%s\n```\n\n", gen_sig_md);
+        }
+        const char *gen_example_md = extract_code_block(generators_start, data + len, 1);
+        if (gen_example_md) {
+            sb_appendf(md, "```qleei\n%s\n```\n\n", gen_example_md);
+        }
+        for (size_t i = 0; i < sizeof(generator_intrinsics)/sizeof(generator_intrinsics[0]); i++) {
+            String_Pool_Index sig = extract_intrinsic_signature(generators_start, data + len, generator_intrinsics[i]);
+            String_Pool_Index desc = extract_intrinsic_description(generators_start, data + len, generator_intrinsics[i]);
+            sb_appendf(md, "### %s\n\n", generator_intrinsics[i]);
+            if (sig.pool && strlen(Pooled_String(sig)) > 0) {
+                sb_appendf(md, "```\n%s\n```\n\n", Pooled_String(sig));
+            }
+            if (desc.pool && strlen(Pooled_String(desc)) > 0) {
+                sb_appendf(md, "%s\n\n", Pooled_String(desc));
+            }
+        }
     }
 
   if (!write_entire_file(output_path, md->items, md->count)) return_defer(false);
